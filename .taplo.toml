@@ -1,0 +1,42 @@
+include = ["**/*.toml"]
+exclude = ["target/*", "target/**"]
+
+[formatting]
+indent_string = "    "
+column_width = 100
+trailing_newline = true
+align_comments = false
+allowed_blank_lines = 1
+crlf = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = ["features"]
+formatting.column_width = 105
+formatting.reorder_keys = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = [
+    "dependencies",
+    "*-dependencies",
+    "workspace.dependencies",
+    "workspace.*-dependencies",
+    "target.*.dependencies",
+    "target.*.*-dependencies",
+]
+formatting.column_width = 120
+formatting.reorder_keys = true
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = [
+    "dependencies.*",
+    "*-dependencies.*",
+    "workspace.dependencies.*",
+    "workspace.*-dependencies.*",
+    "target.*.dependencies.*",
+    "target.*.*-dependencies.*",
+]
+formatting.column_width = 120
+formatting.reorder_keys = false

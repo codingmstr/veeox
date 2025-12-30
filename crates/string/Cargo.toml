@@ -1,0 +1,15 @@
+[package]
+name = "veeox-string"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "veeox-string: string utilities for the veeox ecosystem."
+categories = ["text-processing", "string::tools", "parsing"]
+keywords = ["veeox", "string", "case", "veeox-tools"]
+
+[dependencies]

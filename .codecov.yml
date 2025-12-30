@@ -1,0 +1,32 @@
+
+comment: false
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70..95"
+
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 1%
+        informational: true
+
+    patch:
+      default:
+        target: 85%
+        threshold: 1%
+        informational: true
+
+ignore:
+  - "target/**"
+  - "**/target/**"
+  - "**/*.md"
+  - "**/build.rs"
+  - "tests/**"
+  - "benches/**"
+  - "examples/**"

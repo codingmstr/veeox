@@ -1,0 +1,22 @@
+[package]
+name = "benches"
+description = "workspace benches"
+publish = false
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+veeox = { workspace = true }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "web"
+path = "web.rs"
+harness = false

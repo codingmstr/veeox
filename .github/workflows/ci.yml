@@ -1,0 +1,248 @@
+name: CI
+
+on:
+  push:
+    branches: ['main', 'veeox-*.x']
+
+  pull_request:
+    branches: ['main', 'veeox-*.x']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: -Dwarnings
+
+  rust_stable: stable
+  rust_min: '1.90'
+  rust_nightly: nightly-2026-01-16
+
+jobs:
+  basics:
+    name: fmt + clippy (stable)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_stable }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.rust_stable }}
+          components: rustfmt, clippy
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      # - name: Rustfmt
+      #   run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: tests (stable) / ${{ matrix.os }}
+    needs: basics
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_stable }}
+        uses: dtolnay/rust-toolchain@stable
+
+        with:
+          toolchain: ${{ env.rust_stable }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test (all features)
+        run: cargo test --workspace --all-features
+
+  minimal-features:
+    name: tests (minimal features)
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_stable }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.rust_stable }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test (no default features)
+        run: cargo test --workspace --no-default-features
+
+      - name: Test (default features)
+        run: cargo test --workspace
+
+  docs:
+    name: docs (rustdoc)
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_stable }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.rust_stable }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build docs (deny warnings)
+        env:
+          RUSTDOCFLAGS: -Dwarnings
+        run: cargo doc --workspace --all-features --no-deps
+
+  msrv:
+    name: MSRV (rust_min)
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_min }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.rust_min }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check (workspace)
+        run: cargo check --workspace
+
+  nightly:
+    name: nightly smoke (pinned)
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_nightly }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.rust_nightly }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test (all features)
+        run: cargo test --workspace --all-features
+
+  deny:
+    name: cargo-deny
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  audit:
+    name: cargo-audit
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Run audit
+        run: cargo audit
+
+  spellcheck:
+    name: check-spelling
+    needs: basics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.rust_stable }}
+        uses: dtolnay/rust-toolchain@stable
+
+        with:
+          toolchain: ${{ env.rust_stable }}
+
+      - name: Install cargo-spellcheck
+        uses: taiki-e/install-action@v2
+
+        with:
+          tool: cargo-spellcheck
+
+      - name: Make sure dictionary words are sorted, unique, and counted
+        run: |
+          set -euo pipefail
+          FILE="spellcheck.dic"
+
+          first_line="$(head -n 1 "$FILE" || true)"
+          if ! [[ "$first_line" =~ ^[0-9]+$ ]]; then
+            echo "Error: The first line of $FILE must be an integer word count, got: '$first_line'"
+            exit 1
+          fi
+          expected_count="$first_line"
+
+          actual_count="$(sed '1d' "$FILE" | wc -l | xargs)"
+          if [ "$expected_count" -ne "$actual_count" ]; then
+            echo "Error: Word count mismatch. Expected $expected_count, got $actual_count."
+            exit 1
+          fi
+
+          ( sed '1d' "$FILE" | LC_ALL=en_US.UTF-8 sort -uc ) || {
+            echo "Dictionary is not sorted or has duplicates. Correct order is:"
+            LC_ALL=en_US.UTF-8 sort -u <(sed '1d' "$FILE")
+            exit 1
+          }
+
+      - name: Run cargo-spellcheck
+        run: |
+          set -euo pipefail
+          if ! cargo spellcheck --code 1; then
+              echo ''
+              echo 'Tips:'
+              echo '  - If this is a Rust identifier, wrap it in backticks: `MyRustType`.'
+              echo '  - If this is a real word/term, add it to spellcheck.dic (keep it sorted + update count).'
+              exit 1
+          fi
+
+      - name: Detect trailing whitespace
+        run: |
+          set -euo pipefail
+          if grep -I --exclude-dir=.git --exclude-dir=target --exclude-dir=scripts -nRE '[[:blank:]]+$' .; then
+              echo ''
+              echo 'Please remove trailing whitespace from these lines.'
+              exit 1
+          fi

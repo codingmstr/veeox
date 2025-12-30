@@ -1,0 +1,47 @@
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
+exclude = []
+all-features = true
+
+[licenses]
+confidence-threshold = 0.93
+private = { ignore = true }
+allow = [
+    "MIT",
+    # "Apache-2.0",
+    # "BSD-2-Clause",
+    # "BSD-3-Clause",
+    # "ISC",
+    # "Zlib",
+    # "Unicode-DFS-2016",
+    # "CC0-1.0",
+]
+
+exceptions = []
+
+[[licenses.clarify]]
+crate = "webpki"
+expression = "ISC"
+license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = []
+skip = []
+skip-tree = []
+
+[bans.build]
+executables = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+ignore = []

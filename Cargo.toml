@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["tests", "benches", "examples", "crates/api", "crates/string", "crates/web"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+readme = "README.md"
+license = "MIT"
+description = "veeox: modern Rust ecosystem for high-performance backends."
+repository = "https://github.com/codingmstr/veeox"
+homepage = "https://github.com/codingmstr/veeox"
+authors = ["Coding Master <codingmaster009@gmail.com>"]
+keywords = ["veeox", "api", "backend"]
+
+[workspace.metadata.spellcheck]
+config = "spellcheck.toml"
+
+[workspace.dependencies]
+veeox = { path = "crates/web", version = "0.1.0" }
+veeox-api = { path = "crates/api", version = "0.1.0" }
+veeox-string = { path = "crates/string", version = "0.1.0" }
+
+criterion = "0.5.1"

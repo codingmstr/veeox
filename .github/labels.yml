@@ -1,0 +1,47 @@
+- name: 'app:tests'
+  color: '5319E7'
+  description: 'Changes in tests app (root)'
+
+- name: 'benchmarks'
+  color: 'FBCA04'
+  description: 'Benchmarks / performance related'
+
+- name: 'examples'
+  color: 'D4C5F9'
+  description: 'Examples updates'
+
+- name: 'docs'
+  color: '0075CA'
+  description: 'Documentation updates'
+
+- name: 'ci'
+  color: '1D76DB'
+  description: 'CI / GitHub Actions changes'
+
+- name: 'cargo'
+  color: 'C2E0C6'
+  description: 'Cargo.toml / Cargo.lock changes'
+
+- name: 'security'
+  color: 'D73A4A'
+  description: 'Security policy / advisories'
+
+- name: 'release'
+  color: 'B60205'
+  description: 'Changelog / release related'
+
+- name: 'tooling'
+  color: 'BFDADC'
+  description: 'Dev tooling config (deny/typos/editorconfig)'
+
+- name: 'crates:api'
+  color: '0E8A16'
+  description: 'Changes in crates/api'
+
+- name: 'crates:string'
+  color: '0E8A16'
+  description: 'Changes in crates/string'
+
+- name: 'crates:web'
+  color: '0E8A16'
+  description: 'Changes in crates/web'

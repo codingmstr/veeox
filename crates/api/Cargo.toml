@@ -1,0 +1,15 @@
+[package]
+name = "veeox-api"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "veeox-api: api utilities for the veeox ecosystem."
+categories = ["web-programming", "network-programming"]
+keywords = ["veeox", "api", "client", "veeox-tools"]
+
+[dependencies]

@@ -1,0 +1,18 @@
+[package]
+name = "examples"
+description = "workspace examples"
+publish = false
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+veeox = { workspace = true }
+
+[[example]]
+name = "web"
+path = "web.rs"
