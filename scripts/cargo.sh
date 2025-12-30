@@ -1168,9 +1168,11 @@ cmd_ci () {
     printf "\n💥 Check Spellcheck ...\n\n"
     has_cmd cargo-spellcheck && "${SELF}" spellcheck || log "skip: cargo-spellcheck not installed"
 
-    local pub=0; [[ " $* " == *" --publish "* ]] && pub=1
-    (( pub )) && { printf "\n💥 Publishing ...\n\n"; "${SELF}" publish "${@/--publish/}"; }
+    local pub=0 pass=() a
+    for a in "$@"; do [[ "$a" == --publish ]] && { pub=1; continue; }; pass+=( "$a" ); done
+    (( pub )) && { printf "\n💥 Publishing ...\n\n"; "${SELF}" publish "${pass[@]}"; }
 
-    printf "\n✅ CI pipeline succeeded.\n\n"
+    (( pub )) && printf "\n✅ workspace published successfully.\n\n"
+    (( pub )) || printf "\n✅ CI pipeline succeeded.\n\n"
 
 }
