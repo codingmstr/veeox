@@ -38,14 +38,47 @@ die () {
     exit "${2:-1}"
 
 }
+redact_arg () {
+
+    local a="${1}"
+
+    case "${a}" in
+
+        *x-access-token:*@*)
+            local pre="${a%%x-access-token:*}x-access-token:"
+            local rest="${a#*x-access-token:}"
+            local after="${rest#*@}"
+            printf '%s***@%s' "${pre}" "${after}"
+            return 0
+        ;;
+
+        *=*)
+            local k="${a%%=*}"
+
+            case "${k}" in
+                *_KEY|KEY_*|KEY|*_TOKEN|TOKEN_*|TOKEN|*_SECRET|SECRET_*|SECRET|*_PASSWORD|PASSWORD_*|PASSWORD)
+                    printf '%s' "${a%%=*}=***"
+                    return 0
+                ;;
+            esac
+        ;;
+
+    esac
+
+    printf '%s' "${a}"
+
+}
 run () {
 
     if (( VX_VERBOSE )); then
         {
             printf '+'
+            local a=""
+
             for a in "$@"; do
-                printf ' %q' "${a}"
+                printf ' %q' "$(redact_arg "${a}")"
             done
+            
             printf '\n'
         } >&2
     fi

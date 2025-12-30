@@ -72,6 +72,29 @@ git_switch () {
     git checkout "$@"
 
 }
+git_is_semver () {
+
+    [[ "${1}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([\-+][0-9A-Za-z\.\-]+)?$ ]]
+
+}
+git_norm_tag () {
+
+    local t="${1}"
+    local core="${t}"
+
+    if [[ "${t}" == v* ]]; then
+
+        core="${t#v}"
+        git_is_semver "${core}" && { printf 'v%s\n' "${core}"; return 0; }
+        printf '%s\n' "${t}"
+        return 0
+
+    fi
+
+    git_is_semver "${t}" && { printf 'v%s\n' "${t}"; return 0; }
+    printf '%s\n' "${t}"
+
+}
 git_redact_url () {
 
     local url="${1:-}"
@@ -302,16 +325,35 @@ git_help () {
     init             Init git repo + set remote + default branch
     remote           Show remote url (redacted) + protocol
 
-    push             Add/commit + push branch (+ optional tag)
+    push             Add/commit + push branch (+ optional tag/release)
 
     new-branch       Create/switch branch (tracks remote if exists)
     remove-branch    Delete branch locally + remote
 
-    new-release      Create annotated tag + push
-    remove-release   Delete tag locally + remote
+    new-release      Create annotated release + push
+    remove-release   Delete release locally + remote
 OUT
 }
 
+cmd_root_version () {
+
+    local toml="${ROOT_DIR}/Cargo.toml"
+    [[ -f "${toml}" ]] || return 1
+
+    awk '
+        BEGIN { sect=""; pkg="" }
+
+        /^\[workspace\.package\]/ { sect="ws"; next }
+        /^\[package\]/           { sect="pkg"; next }
+        /^\[/                    { sect=""; next }
+
+        sect=="ws"  && match($0, /^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) { print m[1]; exit }
+        sect=="pkg" && pkg==""   && match($0, /^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) { pkg=m[1] }
+
+        END { if (pkg!="") print pkg }
+    ' "${toml}"
+
+}
 cmd_init () {
 
     cd_root
@@ -563,7 +605,7 @@ cmd_new_release () {
     done
 
     [[ -n "${tag}" ]] || die "Usage: vx new-release <tag> ..." 2
-    [[ "${tag}" == v* ]] || tag="v${tag}"
+    [[ -n "${tag}" ]] && tag="$(git_norm_tag "${tag}")"
     [[ -n "${msg}" ]] || msg="release: ${tag}"
 
     local kind="" target="" safe="" ssh_cmd=""
@@ -613,7 +655,7 @@ cmd_remove_release () {
     done
 
     [[ -n "${tag}" ]] || die "Usage: vx remove-release <tag> ..." 2
-    [[ "${tag}" == v* ]] || tag="v${tag}"
+    [[ -n "${tag}" ]] && tag="$(git_norm_tag "${tag}")"
 
     confirm "Delete tag '${tag}' locally and on '${remote}'?" || return 0
     run git tag -d "${tag}" >/dev/null 2>&1 || true
@@ -651,11 +693,24 @@ cmd_push () {
             --key)          shift; key="${1:-}";       [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
             --token)        shift; token="${1:-}";     [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
             --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -t|--tag)       shift; tag="${1:-}";       [[ -n "${tag}" ]]    || die "Missing tag" 2;                      shift ;;
+            -t|--tag|--release)
+                shift || true
+                if [[ -n "${1:-}" && "${1:-}" != -* ]]; then
+                    tag="${1}"
+                    shift || true
+                else
+                    tag="auto"
+                fi
+            ;;
+            --tag=*|--release=*)
+                tag="${1#*=}"
+                [[ -n "${tag}" ]] || tag="auto"
+                shift || true
+            ;;
             -b|--branch)    shift; branch="${1:-}";    [[ -n "${branch}" ]] || die "Missing branch" 2;                   shift ;;
             -m|--message)   shift; msg="${1:-}";       [[ -n "${msg}" ]]    || die "Missing message" 2;                  shift ;;
             -f|--force)     force=1; shift ;;
-            -h|--help)      log "Usage: vx push [-t <tag>] [-b <branch>] [-m <msg>] [-f] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
+            -h|--help)      log "Usage: vx push [-t|--release <tag>] [-b <branch>] [-m <msg>] [-f] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
             --) shift || true; break ;;
             *) die "Unknown arg: $1" 2 ;;
         esac
@@ -668,11 +723,16 @@ cmd_push () {
         branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
         [[ -n "${branch}" ]] || branch="main"
     fi
-
+    if [[ "${tag}" == "auto" ]]; then
+        local v=""
+        v="$(cmd_root_version || true)"
+        [[ -n "${v}" ]] || die "Can't detect version from ${ROOT_DIR}/Cargo.toml" 2
+        tag="v${v}"
+    fi
     if [[ -n "${tag}" ]]; then
-        [[ "${tag}" == v* ]] || tag="v${tag}"
+        tag="$(git_norm_tag "${tag}")"
         [[ "${msg}" != "done" ]] || msg="Track ${tag} release."
-
+       
         if git_remote_has_tag "${kind}" "${ssh_cmd}" "${target}" "${tag}" && (( force == 0 )); then
             die "Tag exists on remote (${remote}/${tag}). Use -f to overwrite." 2
         fi
@@ -683,7 +743,6 @@ cmd_push () {
     if ! git_cmd "${kind}" "${ssh_cmd}" diff --cached --quiet >/dev/null 2>&1; then
         git_cmd "${kind}" "${ssh_cmd}" commit -m "${msg}" || die "git commit failed (check user.name/user.email)." 2
     fi
-
     if [[ -n "${tag}" ]]; then
 
         git_cmd "${kind}" "${ssh_cmd}" tag -d "${tag}" >/dev/null 2>&1 || true

@@ -163,6 +163,7 @@ cargo_help () {
     ci               Run a local CI-like workflow (checks + tests + lints)
     meta             Show workspace metadata (members, names, packages, publishable set)
     publish          Publish crates in dependency order (workspace publish)
+    yank             Yank a published version (or undo yank)
 OUT
 }
 
@@ -774,41 +775,6 @@ cmd_fix_audit () {
     run cargo audit fix "$@"
 
 }
-cmd_ci () {
-
-    cd_root
-    need_cmd cargo
-
-    printf "\n💥 Checking ...\n\n"
-    "${SELF}" check
-
-    printf "\n💥 Testing ...\n\n"
-    "${SELF}" test
-
-    printf "\n💥 Clippy ...\n\n"
-    "${SELF}" clippy
-
-    printf "\n💥 Check Audit ...\n\n"
-    "${SELF}" check-audit
-
-    printf "\n💥 Check Doc ...\n\n"
-    "${SELF}" check-doc
-
-    printf "\n💥 Check Format ...\n\n"
-    "${SELF}" check-fmt
-
-    printf "\n💥 Check Taplo ...\n\n"
-    "${SELF}" check-taplo
-
-    printf "\n💥 Check Prettier ...\n\n"
-    "${SELF}" check-prettier
-
-    printf "\n💥 Check Spellcheck ...\n\n"
-    run cargo spellcheck --version >/dev/null 2>&1 && "${SELF}" spellcheck || log "skip: cargo-spellcheck not installed"
-
-    printf "\n✅ CI pipeline succeeded.\n\n"
-
-}
 cmd_publish () {
 
     cd_root
@@ -873,7 +839,9 @@ cmd_publish () {
 
     [[ ${#packages[@]} -gt 0 && ${#excludes[@]} -gt 0 ]] && die "Error: --exclude cannot be used with --package/-p (exclude requires --workspace)" 2
     [[ ${dry_run} -eq 1 ]] && cargo_args+=( --dry-run )
-    [[ -n "${token}" ]] && cargo_args+=( --token "${token}" )
+
+    local env_token=()
+    [[ -n "${token}" ]] && env_token=( CARGO_REGISTRY_TOKEN="${token}" )
 
     local i=0
     while [[ $i -lt ${#excludes[@]} ]]; do
@@ -887,9 +855,83 @@ cmd_publish () {
         i=$(( i + 1 ))
     done
 
-    [[ ${#packages[@]} -gt 0 ]] && { run cargo publish "${cargo_args[@]}" "$@"; return $?; }
+    [[ ${#packages[@]} -gt 0 ]] && { "${env_token[@]}" run cargo publish "${cargo_args[@]}" "$@"; return $?; }
+    "${env_token[@]}" run cargo publish --workspace "${cargo_args[@]}" "$@"
 
-    run cargo publish --workspace "${cargo_args[@]}" "$@"
+}
+cmd_yank () {
+
+    cd_root
+    need_cmd cargo
+
+    local package=""
+    local version=""
+    local undo=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--package)
+                shift || true
+                package="${1:-}"
+                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                shift || true
+            ;;
+            --package=*)
+                package="${1#*=}"
+                [[ -n "${package}" ]] || die "Error: --package requires a value" 2
+                shift || true
+            ;;
+            -V|--version)
+                shift || true
+                version="${1:-}"
+                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
+                shift || true
+            ;;
+            --version=*)
+                version="${1#*=}"
+                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
+                shift || true
+            ;;
+            --undo|--restore)
+                undo=1
+                shift || true
+            ;;
+            -h|--help)
+                log "Usage:"
+                log "    vx yank -p <crate> --version <x.y.z> [--undo]"
+                return 0
+            ;;
+            *)
+                if [[ -z "${package}" ]]; then
+                    package="$1"
+                    shift || true
+                    continue
+                fi
+                if [[ -z "${version}" ]]; then
+                    version="$1"
+                    shift || true
+                    continue
+                fi
+                die "Unknown arg: $1" 2
+            ;;
+        esac
+    done
+
+    [[ -n "${package}" ]] || die "Error: missing package. Use -p/--package." 2
+    [[ -n "${version}" ]] || die "Error: missing version. Use --version." 2
+
+    local action="yank"
+    (( undo )) && action="undo yank"
+
+    version="${version#v}"
+    confirm "About to ${action} ${package} v${version}. Continue?" || die "Aborted." 1
+
+    if (( undo )); then
+        run cargo yank -p "${package}" --version "${version}" --undo
+        return 0
+    fi
+
+    run cargo yank -p "${package}" --version "${version}"
 
 }
 cmd_meta () {
@@ -1092,5 +1134,43 @@ cmd_meta () {
     fi
 
     run cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
+
+}
+cmd_ci () {
+
+    cd_root
+    need_cmd cargo
+
+    printf "\n💥 Checking ...\n\n"
+    "${SELF}" check
+
+    printf "\n💥 Testing ...\n\n"
+    "${SELF}" test
+
+    printf "\n💥 Clippy ...\n\n"
+    "${SELF}" clippy
+
+    printf "\n💥 Check Audit ...\n\n"
+    "${SELF}" check-audit
+
+    printf "\n💥 Check Doc ...\n\n"
+    "${SELF}" check-doc
+
+    printf "\n💥 Check Format ...\n\n"
+    "${SELF}" check-fmt
+
+    printf "\n💥 Check Taplo ...\n\n"
+    "${SELF}" check-taplo
+
+    printf "\n💥 Check Prettier ...\n\n"
+    "${SELF}" check-prettier
+
+    printf "\n💥 Check Spellcheck ...\n\n"
+    has_cmd cargo-spellcheck && "${SELF}" spellcheck || log "skip: cargo-spellcheck not installed"
+
+    local pub=0; [[ " $* " == *" --publish "* ]] && pub=1
+    (( pub )) && { printf "\n💥 Publishing ...\n\n"; "${SELF}" publish "${@/--publish/}"; }
+
+    printf "\n✅ CI pipeline succeeded.\n\n"
 
 }
