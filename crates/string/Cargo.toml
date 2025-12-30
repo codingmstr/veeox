@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
 description = "veeox-string: string utilities for the veeox ecosystem."
-categories = ["text-processing", "string::tools", "parsing"]
+categories = ["text-processing", "value-formatting", "parsing"]
 keywords = ["veeox", "string", "case", "veeox-tools"]
 
 [dependencies]

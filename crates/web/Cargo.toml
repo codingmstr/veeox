@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
 description = "veeox: main web facade for the veeox ecosystem."
-categories = ["web-programming::http-server", "web-programming::frameworks"]
+categories = ["web-programming::http-server", "web-programming-frameworks"]
 keywords = ["veeox", "web", "framework", "backend", "async", "veeox-tools"]
 
 [dependencies]
