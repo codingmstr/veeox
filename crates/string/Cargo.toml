@@ -8,6 +8,7 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
+publish = false
 description = "veeox-string: string utilities for the veeox ecosystem."
 categories = ["text-processing", "value-formatting", "parsing"]
 keywords = ["veeox", "string", "case", "veeox-tools"]
