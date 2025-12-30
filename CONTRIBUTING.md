@@ -30,7 +30,6 @@ This repository is a Cargo workspace containing multiple crates:
 -   `web/` -> crate `veeox` (facade)
 -   `api/` -> crate `veeox-api`
 -   `string/` -> crate `veeox-string`
--   `work/` -> local example app
 
 ## Pull Requests
 
