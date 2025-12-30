@@ -3,7 +3,7 @@ resolver = "2"
 members = ["tests", "benches", "examples", "crates/api", "crates/string", "crates/web"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.90"
 readme = "README.md"
