@@ -1,24 +1,200 @@
 #!/usr/bin/env bash
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base.sh"
 
-ensure_crate () {
+ensure_rust () {
 
-    local crate="$1"
-    local bin="${2:-$crate}"
+    local tc="${1:-stable}"
+    local uname_s=""
 
-    shift 2 || true
-    has_cmd "${bin}" || run cargo install --locked "${crate}" "$@"
+    export PATH="${HOME}/.cargo/bin:${PATH}"
+
+    if [[ -n "${GITHUB_PATH:-}" ]]; then
+        printf '%s\n' "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+    fi
+
+    has_cmd rustup && {
+
+        rustup which rustc >/dev/null 2>&1 || {
+            run rustup toolchain install "${tc}" --profile minimal
+            run rustup default "${tc}"
+        }
+
+        return 0
+
+    }
+
+    uname_s="$(uname -s 2>/dev/null || true)"
+
+    need_cmd curl
+
+    case "${uname_s}" in
+        MINGW*|MSYS*|CYGWIN*)
+            local tmp="${TMPDIR:-${TEMP:-/tmp}}/rustup-init.$$.exe"
+
+            run curl -fsSL -o "${tmp}" "https://win.rustup.rs/x86_64" || die "Failed to download rustup-init.exe" 2
+            run "${tmp}" -y --profile minimal --default-toolchain "${tc}" || die "Failed to install rustup (Windows)" 2
+            rm -f -- "${tmp}" 2>/dev/null || true
+        ;;
+        Darwin|Linux)
+            run curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --profile minimal --default-toolchain "${tc}" \
+                || die "Failed to install rustup." 2
+        ;;
+        *)
+            return 0
+        ;;
+    esac
+
+    export PATH="${HOME}/.cargo/bin:${PATH}"
+    [[ -f "${HOME}/.cargo/env" ]] && source "${HOME}/.cargo/env" || true
+
+    has_cmd rustup || die "rustup installed but not found in PATH (check ~/.cargo/bin)." 2
+
+    run rustup toolchain install "${tc}" --profile minimal
+    run rustup default "${tc}"
 
 }
-taplo_run () {
+ensure_node () {
 
-    if has_cmd taplo; then
-        run taplo fmt "$@"
+    local want="${1:-24}" v major uname_s=""
+    uname_s="$(uname -s 2>/dev/null || true)"
+
+    if has_cmd node; then
+
+        v="$(node --version 2>/dev/null || true)"
+        v="${v#v}"
+        major="${v%%.*}"
+
+        [[ "${major}" =~ ^[0-9]+$ ]] || die "Can't parse Node.js version: ${v}" 2
+
+        if (( major >= want )) && has_cmd npx && npx --version >/dev/null 2>&1; then
+            return 0
+        fi
+
+    fi
+
+    if [[ "${uname_s}" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+
+        local u=""
+        u="${USERNAME:-$(whoami 2>/dev/null || true)}"
+
+        if [[ -d "/c/Users/${u}/AppData/Local/Volta" ]]; then
+            export VOLTA_HOME="/c/Users/${u}/AppData/Local/Volta"
+        else
+            export VOLTA_HOME="${HOME}/.volta"
+        fi
+
+    else
+
+        export VOLTA_HOME="${VOLTA_HOME:-${HOME}/.volta}"
+
+    fi
+
+    export PATH="${VOLTA_HOME}/bin:${PATH}"
+
+    if ! has_cmd volta; then
+
+        case "${uname_s}" in
+            MINGW*|MSYS*|CYGWIN*)
+
+                if has_cmd winget; then
+                    run winget install -e --id Volta.Volta --accept-package-agreements --accept-source-agreements --silent
+                elif has_cmd choco; then
+                    run choco install -y volta
+                else
+                    die "No installer found (need winget or choco) to install Volta on Windows." 2
+                fi
+
+                export PATH="/c/ProgramData/chocolatey/bin:${PATH}"
+
+                if ! has_cmd volta; then
+                    local u=""
+                    u="${USERNAME:-$(whoami 2>/dev/null || true)}"
+
+                    local p1="/c/Users/${u}/AppData/Local/Volta/bin"
+                    local p2="/c/Users/${u}/.volta/bin"
+
+                    [[ -d "${p1}" ]] && export PATH="${p1}:${PATH}"
+                    [[ -d "${p2}" ]] && export PATH="${p2}:${PATH}"
+                fi
+
+            ;;
+            *)
+                ensure_pkg --no-update curl
+                run curl -fsSL https://get.volta.sh | bash || die "Failed to install Volta." 2
+            ;;
+        esac
+
+        export PATH="${VOLTA_HOME}/bin:${PATH}"
+        has_cmd volta || die "Volta installed but not found in PATH. Restart shell or fix PATH/VOLTA_HOME." 2
+
+    fi
+
+    run volta install "node@${want}" || die "Failed to install Node via Volta." 2
+
+    has_cmd node || die "Node install finished but 'node' not found in PATH." 2
+    has_cmd npx  || die "npx not found after Node install. Check PATH/VOLTA_HOME." 2
+    npx --version >/dev/null 2>&1 || die "npx exists but failed to run. Check environment/PATH." 2
+
+    v="$(node --version 2>/dev/null || true)"
+    v="${v#v}"
+    major="${v%%.*}"
+
+    [[ "${major}" =~ ^[0-9]+$ ]] || die "Can't parse Node.js version after install: ${v}" 2
+    (( major >= want )) || die "Node install did not satisfy requirement (need ${want}+, found v${v})." 2
+
+    if [[ -n "${GITHUB_PATH:-}" ]]; then
+        printf '%s\n' "${VOLTA_HOME}/bin" >> "${GITHUB_PATH}"
+    fi
+
+}
+ensure_component () {
+
+    local comp="${1}"
+
+    has_cmd rustup || return 0
+
+    if [[ "${comp}" == "llvm-tools-preview" ]]; then
+
+        if rustup component list --installed 2>/dev/null | grep -qE '^(llvm-tools|llvm-tools-preview)\b'; then
+            return 0
+        fi
+
+        run rustup component add llvm-tools-preview 2>/dev/null || run rustup component add llvm-tools
+        return 0
+
+    fi
+    if rustup component list --installed 2>/dev/null | grep -qE "^${comp}\b"; then
         return 0
     fi
 
-    need_node
-    run npx -y @taplo/cli@0.7.0 fmt "$@"
+    run rustup component add "${comp}"
+
+}
+ensure_crate () {
+
+    local crate="${1}"
+    local bin="${2}"
+
+    shift 2
+
+    export PATH="${HOME}/.cargo/bin:${PATH}"
+    has_cmd "${bin}" && return 0
+
+    run cargo install --locked "${crate}" "$@" || die "Failed to install: ${crate}" 2
+    has_cmd "${bin}" || die "Installed ${crate} but '${bin}' not found in PATH (check ~/.cargo/bin)." 2
+
+}
+docflags_deny () {
+
+    local cur="${RUSTDOCFLAGS:-}"
+
+    if [[ -n "${cur}" ]]; then
+        printf '%s -Dwarnings' "${cur}"
+        return 0
+    fi
+
+    printf '%s' "-Dwarnings"
 
 }
 pick_sort_locale () {
@@ -90,33 +266,92 @@ clippy_flags () {
         "-Dclippy::disallowed_macros"
 
 }
-cargo_test_like () {
+codecov_upload () {
 
-    local sub="${1}"
-    shift || true
+    local file="${1}"
+    local flags="${2:-}"
+    local name="${3:-}"
+    local version="${4:-latest}"
+    local token="${5:-${CODECOV_TOKEN-}}"
 
-    cd_root
-    need_cmd cargo
+    need_cmd git
+    need_cmd curl
+    need_cmd chmod
+    need_cmd mv
+    need_cmd mkdir
 
-    if [[ $# -eq 0 ]]; then
-        run cargo "${sub}" --workspace --all-features
+    if [[ -z "${token}" ]]; then
+        log "Codecov: CODECOV_TOKEN is missing -> skipping upload (common on fork PRs)."
         return 0
     fi
-    if [[ "${1:-}" == "-p" || "${1:-}" == "--package" ]]; then
 
-        shift || true
+    local os
+    local arch
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    arch="$(uname -m)"
 
-        local package="${1:-}"
-        [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+    local dist="linux"
+    if [[ "${os}" == "darwin" ]]; then dist="macos"; fi
+    if [[ "${dist}" == "linux" && ( "${arch}" == "aarch64" || "${arch}" == "arm64" ) ]]; then dist="linux-arm64"; fi
 
-        shift || true
+    [[ -n "${version}" ]] || version="latest"
+    [[ -n "${version}" && "${version}" != "latest" && "${version}" != v* ]] && version="v${version}"
 
-        run cargo "${sub}" -p "${package}" --all-features "$@"
-        return 0
+    local cache_dir="${ROOT_DIR}/.vx/cache"
+    mkdir -p -- "${cache_dir}"
+
+    local resolved="${version}"
+
+    if [[ "${version}" == "latest" ]]; then
+
+        local latest_page=""
+        latest_page="$(curl -fsSL "https://cli.codecov.io/${dist}/latest" 2>/dev/null || true)"
+
+        local v=""
+        v="$(printf '%s\n' "${latest_page}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+
+        [[ -n "${v}" ]] && resolved="${v}"
 
     fi
 
-    run cargo "${sub}" --workspace --all-features "$@"
+    local bin="${cache_dir}/codecov-${dist}-${resolved}"
+
+    if [[ ! -x "${bin}" ]]; then
+
+        local tmp="${bin}.tmp.$$"
+        rm -f -- "${tmp}" 2>/dev/null || true
+
+        local url_a="https://cli.codecov.io/${dist}/${resolved}/codecov"
+        local url_b="https://cli.codecov.io/${resolved}/${dist}/codecov"
+
+        if ! run curl -fsSL -o "${tmp}" "${url_a}"; then
+            run curl -fsSL -o "${tmp}" "${url_b}"
+        fi
+
+        run chmod +x "${tmp}"
+        run mv -f -- "${tmp}" "${bin}"
+
+    fi
+
+    run "${bin}" --version >/dev/null 2>&1
+
+    local -a up_args=(
+        --verbose
+        upload-process
+        --disable-search
+        --fail-on-error
+        -t "${token}"
+        -f "${file}"
+    )
+
+    [[ -n "${flags}" ]] && up_args+=( -F "${flags}" )
+    [[ -n "${name}"  ]] && up_args+=( -n "${name}" )
+
+    run "${bin}" "${up_args[@]}"
+
+    if [[ -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_SHA:-}" ]]; then
+        log "Codecov: https://app.codecov.io/gh/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+    fi
 
 }
 cargo_help () {
@@ -129,6 +364,7 @@ cargo_help () {
 
     check            Fast compile checks for all crates and targets (no binaries produced)
     test             Run the full test suite (workspace-wide or a single crate)
+    hack             Run feature matrix checks using cargo-hack (each-feature or powerset)
     bench            Run benchmarks (workspace-wide or a single crate)
     example          Run an example target by name, forwarding extra args after --
     clean            Remove build artifacts
@@ -160,36 +396,21 @@ cargo_help () {
     test-doc         Run documentation tests (doctests)
     open-doc         Build docs then open them in your browser
 
-    ci               Run a local CI-like workflow (checks + tests + lints)
     meta             Show workspace metadata (members, names, packages, publishable set)
     publish          Publish crates in dependency order (workspace publish)
     yank             Yank a published version (or undo yank)
+
+    ci               Run a local CI-like workflow (checks + tests + lints)
+    ci-fast          CI fast pipeline (check + test + clippy)
+    ci-fmt           CI format pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)
+    ci-doc           CI docs pipeline (check-doc + test-doc)
+    ci-hack          CI feature-matrix pipeline (cargo-hack)
+    ci-coverage      CI coverage pipeline (llvm-cov)
+    ci-msrv          CI MSRV pipeline (check + test --no-run on MSRV toolchain)
+    ci-publish       CI publish gate then publish (full checks + publish)
 OUT
 }
 
-cmd_ensure () {
-
-    cd_root
-    need_cmd cargo
-    need_cmd grep
-
-    log "== Installing Dependencies =="
-
-    ensure_crate "cargo-deny" "cargo-deny"
-    ensure_crate "cargo-audit" "cargo-audit" --features fix
-    ensure_crate "cargo-spellcheck" "cargo-spellcheck"
-    ensure_crate "cargo-llvm-cov" "cargo-llvm-cov"
-    ensure_crate "taplo-cli" "taplo"
-
-    if has_cmd rustup; then
-        if ! rustup component list --installed 2>/dev/null | grep -qE '^(llvm-tools|llvm-tools-preview)\b'; then
-            run rustup component add llvm-tools-preview
-        fi
-    fi
-
-    log "== Done =="
-
-}
 cmd_new () {
 
     cd_root
@@ -219,7 +440,7 @@ cmd_new () {
                 shift || true
             ;;
             --)
-                shift
+                shift || true
                 pass+=( "$@" )
                 break
             ;;
@@ -237,16 +458,18 @@ cmd_new () {
     done
 
     [[ -n "${name}" ]] || die "Usage: cmd_new [--lib|--bin] [--dir <dir>] [--no-workspace] <name> [-- <cargo new args>]" 2
+    [[ "${name}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid crate name: ${name}" 2
 
     local path="${dir}/${name}"
     [[ -e "${path}" ]] && die "Error: already exists: ${path}" 2
 
-    run cargo new --vcs none "${kind}" "${path}" "${pass[@]}"
+    mkdir -p -- "${dir}" 2>/dev/null || true
+    run cargo new --vcs none "${kind}" "${pass[@]}" "${path}"
 
     [[ ${add_workspace} -eq 1 ]] || return 0
     [[ -f Cargo.toml ]] || return 0
 
-    grep -qE '^\s*members\s*=\s*\[.*"'"${dir}"'/\*".*\]' Cargo.toml 2>/dev/null && return 0
+    grep -qF "\"${dir}/${name}\"" Cargo.toml 2>/dev/null && return 0
 
     VX_MEMBER="${dir}/${name}" perl -0777 -i -pe '
         my $m = $ENV{VX_MEMBER};
@@ -285,6 +508,8 @@ cmd_run () {
 
     local pkg=""
     local bin=""
+    local -a cargo_args=()
+    local -a prog_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -302,40 +527,40 @@ cmd_run () {
             ;;
             --)
                 shift || true
+                prog_args=( "$@" )
                 break
             ;;
+            -*)
+                cargo_args+=( "$1" )
+                shift || true
+            ;;
             *)
-                if [[ -z "${bin}" && "${1:0:1}" != "-" ]]; then
+                if [[ -z "${bin}" ]]; then
                     bin="$1"
                     shift || true
                 else
-                    break
+                    die "Error: program args must come after -- (example: vx run ${bin} -- --arg)" 2
                 fi
             ;;
         esac
     done
 
-    if [[ -n "${bin}" ]]; then
-        if [[ -n "${pkg}" ]]; then
-            run cargo run -p "${pkg}" --bin "${bin}" -- "$@"
-        else
-            run cargo run --bin "${bin}" -- "$@"
-        fi
-        return $?
-    fi
-    if [[ -n "${pkg}" ]]; then
-        run cargo run -p "${pkg}" -- "$@"
-        return $?
-    fi
+    local -a cmd=( cargo run )
 
-    run cargo run "$@"
+    [[ -n "${pkg}" ]] && cmd+=( -p "${pkg}" )
+    [[ -n "${bin}" ]] && cmd+=( --bin "${bin}" )
+
+    cmd+=( "${cargo_args[@]}" )
+    [[ ${#prog_args[@]} -gt 0 ]] && cmd+=( -- "${prog_args[@]}" )
+
+    run "${cmd[@]}"
 
 }
 cmd_check () {
 
     cd_root
     need_cmd cargo
-    run cargo check --workspace --all-targets --all-features "$@"
+    run cargo check --locked --workspace --all-targets --all-features "$@"
 
 }
 cmd_fix_ws () {
@@ -347,7 +572,8 @@ cmd_fix_ws () {
     local f=""
 
     while IFS= read -r -d '' f; do
-        perl -pi -e 's/[ \t]+$//' "${f}"
+        perl -0777 -ne 'exit 1 if /\0/; exit 0' "${f}" 2>/dev/null || continue
+        perl -0777 -i -pe 's/[ \t]+$//mg if /[ \t]+$/m' "${f}"
     done < <(git ls-files -z)
 
 }
@@ -355,6 +581,13 @@ cmd_check_fmt () {
 
     cd_root
     need_cmd cargo
+
+    if has_cmd rustup; then
+        ensure_component rustfmt
+    else
+        need_cmd rustfmt
+    fi
+
     run cargo fmt --all --check "$@"
 
 }
@@ -362,6 +595,13 @@ cmd_fix_fmt () {
 
     cd_root
     need_cmd cargo
+
+    if has_cmd rustup; then
+        ensure_component rustfmt
+    else
+        need_cmd rustfmt
+    fi
+
     run cargo fmt --all "$@"
 
 }
@@ -370,8 +610,11 @@ cmd_check_doc () {
     cd_root
     need_cmd cargo
 
+    local flags=""
+    flags="$(docflags_deny)"
+
     if [[ $# -eq 0 ]]; then
-        RUSTDOCFLAGS="-Dwarnings" run cargo doc --workspace --all-features --no-deps
+        RUSTDOCFLAGS="${flags}" run cargo doc --workspace --all-features --no-deps
         return 0
     fi
     if [[ "${1:-}" == "-p" || "${1:-}" == "--package" ]]; then
@@ -383,12 +626,12 @@ cmd_check_doc () {
 
         shift || true
 
-        RUSTDOCFLAGS="-Dwarnings" run cargo doc -p "${package}" --all-features --no-deps "$@"
+        RUSTDOCFLAGS="${flags}" run cargo doc -p "${package}" --all-features --no-deps "$@"
         return 0
 
     fi
 
-    RUSTDOCFLAGS="-Dwarnings" run cargo doc --workspace --all-features --no-deps "$@"
+    RUSTDOCFLAGS="${flags}" run cargo doc --workspace --all-features --no-deps "$@"
 
 }
 cmd_test_doc () {
@@ -396,8 +639,11 @@ cmd_test_doc () {
     cd_root
     need_cmd cargo
 
+    local flags=""
+    flags="$(docflags_deny)"
+
     if [[ $# -eq 0 ]]; then
-        RUSTDOCFLAGS="-Dwarnings" run cargo test --workspace --all-features --doc
+        RUSTDOCFLAGS="${flags}" run cargo test --workspace --all-features --doc
         return 0
     fi
     if [[ "${1:-}" == "-p" || "${1:-}" == "--package" ]]; then
@@ -409,19 +655,21 @@ cmd_test_doc () {
 
         shift || true
 
-        RUSTDOCFLAGS="-Dwarnings" run cargo test -p "${package}" --all-features --doc "$@"
+        RUSTDOCFLAGS="${flags}" run cargo test -p "${package}" --all-features --doc "$@"
         return 0
 
     fi
 
-    RUSTDOCFLAGS="-Dwarnings" run cargo test --workspace --all-features --doc "$@"
+    RUSTDOCFLAGS="${flags}" run cargo test --workspace --all-features --doc "$@"
 
 }
 cmd_clean_doc () {
 
     cd_root
-    need_cmd cargo
-    run cargo clean --doc
+    local p="${ROOT_DIR}/target/doc"
+
+    [[ -d "${p}" ]] || return 0
+    rm -rf -- "${p}" || die "Failed to remove: ${p}" 2
 
 }
 cmd_open_doc () {
@@ -439,7 +687,6 @@ cmd_open_doc () {
     fi
 
     [[ -n "${index}" && -f "${index}" ]] || die "Docs index not found under target/doc" 2
-
     open_path "${index}"
 
 }
@@ -489,12 +736,208 @@ cmd_deny () {
 }
 cmd_test () {
 
-    cargo_test_like test "$@"
+    cd_root
+    need_cmd cargo
+
+    local package=""
+    local doc=0
+    local all=0
+    local -a pass=()
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            -p|--package)
+                shift || true
+                package="${1:-}"
+                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                [[ "${package}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${package}" 2
+                shift || true
+            ;;
+            -d|--doc)
+                doc=1
+                shift || true
+            ;;
+            -a|--all)
+                all=1
+                shift || true
+            ;;
+            --)
+                shift || true
+                pass+=( "--" )
+                pass+=( "$@" )
+                break
+            ;;
+            *)
+                pass+=( "$1" )
+                shift || true
+            ;;
+        esac
+    done
+
+    (( all )) && doc=0
+
+    if has_cmd cargo-nextest; then
+
+        if (( all )); then
+
+            if [[ -n "${package}" ]]; then
+                run cargo nextest run -p "${package}" --all-features "${pass[@]}"
+                run cargo test -p "${package}" --all-features --doc "${pass[@]}"
+                return 0
+            fi
+
+            run cargo nextest run --workspace --all-features "${pass[@]}"
+            run cargo test --workspace --all-features --doc "${pass[@]}"
+            return 0
+
+        fi
+        if (( doc )); then
+
+            if [[ -n "${package}" ]]; then
+                run cargo test -p "${package}" --all-features --doc "${pass[@]}"
+                return 0
+            fi
+
+            run cargo test --workspace --all-features --doc "${pass[@]}"
+            return 0
+
+        fi
+        if [[ -n "${package}" ]]; then
+            run cargo nextest run -p "${package}" --all-features "${pass[@]}"
+            return 0
+        fi
+
+        run cargo nextest run --workspace --all-features "${pass[@]}"
+        return 0
+
+    fi
+    if (( all )); then
+
+        if [[ -n "${package}" ]]; then
+            run cargo test -p "${package}" --all-features "${pass[@]}"
+            run cargo test -p "${package}" --all-features --doc "${pass[@]}"
+            return 0
+        fi
+
+        run cargo test --workspace --all-features "${pass[@]}"
+        run cargo test --workspace --all-features --doc "${pass[@]}"
+        return 0
+
+    fi
+    if (( doc )); then
+
+        if [[ -n "${package}" ]]; then
+            run cargo test -p "${package}" --all-features --doc "${pass[@]}"
+            return 0
+        fi
+
+        run cargo test --workspace --all-features --doc "${pass[@]}"
+        return 0
+
+    fi
+    if [[ -n "${package}" ]]; then
+        run cargo test -p "${package}" --all-features "${pass[@]}"
+        return 0
+    fi
+
+    run cargo test --workspace --all-features "${pass[@]}"
+
+}
+cmd_hack () {
+
+    cd_root
+    need_cmd cargo
+    has_cmd cargo-hack || die "cargo-hack not found. Run: vx ensure" 2
+
+    local mode="powerset"
+    local depth="2"
+    local package=""
+    local -a pass=()
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            --each-feature)
+                mode="each"
+                shift || true
+            ;;
+            --powerset)
+                mode="powerset"
+                shift || true
+            ;;
+            --depth)
+                shift || true
+                depth="${1:-}"
+                [[ -n "${depth}" ]] || die "Error: --depth requires a value" 2
+                [[ "${depth}" =~ ^[0-9]+$ ]] || die "Error: --depth must be an integer" 2
+                shift || true
+            ;;
+            -p|--package)
+                shift || true
+                package="${1:-}"
+                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                [[ "${package}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${package}" 2
+                shift || true
+            ;;
+            --)
+                shift || true
+                pass+=( "--" )
+                pass+=( "$@" )
+                break
+            ;;
+            *)
+                pass+=( "$1" )
+                shift || true
+            ;;
+        esac
+    done
+
+    local -a base=( cargo hack check --workspace --keep-going )
+    [[ -n "${package}" ]] && base=( cargo hack check -p "${package}" --keep-going )
+
+    if [[ "${mode}" == "each" ]]; then
+        run "${base[@]}" --each-feature "${pass[@]}"
+        return 0
+    fi
+
+    run "${base[@]}" --feature-powerset --depth "${depth}" "${pass[@]}"
 
 }
 cmd_bench () {
 
-    cargo_test_like bench "$@"
+    cd_root
+    need_cmd cargo
+
+    local package=""
+    local -a pass=()
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            -p|--package)
+                shift || true
+                package="${1:-}"
+                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                [[ "${package}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${package}" 2
+                shift || true
+            ;;
+            --)
+                shift || true
+                pass+=( "--" )
+                pass+=( "$@" )
+                break
+            ;;
+            *)
+                pass+=( "$1" )
+                shift || true
+            ;;
+        esac
+    done
+
+    if [[ -n "${package}" ]]; then
+        run cargo bench --locked -p "${package}" --all-features "${pass[@]}"
+        return 0
+    fi
+
+    run cargo bench --locked --workspace --all-features "${pass[@]}"
 
 }
 cmd_example () {
@@ -517,13 +960,12 @@ cmd_example () {
     local package="examples"
 
     while [[ $# -gt 0 ]]; do
-
         case "${1}" in
-
             -p|--package)
                 shift || true
                 package="${1:-}"
                 [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                [[ "${package}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${package}" 2
                 shift || true
             ;;
             --)
@@ -533,9 +975,7 @@ cmd_example () {
             *)
                 break
             ;;
-
         esac
-
     done
 
     run cargo run -p "${package}" --example "${name}" -- "$@"
@@ -548,62 +988,47 @@ cmd_clean () {
     run cargo clean
 
 }
+cmd_clean_cache () {
+
+    cd_root
+    need_cmd cargo
+    need_cmd cargo-ci-cache-clean
+    run cargo-ci-cache-clean
+
+}
 cmd_msrv () {
 
     cd_root
     need_cmd cargo
     need_cmd rustc
     need_cmd jq
+    need_cmd sort
+    need_cmd tail
+    need_cmd awk
+    need_cmd sed
 
-    local want=""
-    local have=""
+    local tc="" want="" have=""
 
-    want="$(
-        cargo metadata --no-deps --format-version 1 |
-        jq -r '.packages[].rust_version // empty' |
-        sort -V |
-        tail -n 1
-    )"
+    if [[ -n "${RUST_MSRV:-}" ]]; then
 
-    have="$(rustc -V | awk '{print $2}')"
+        tc="${RUST_MSRV#v}"
+        [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
+        [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Error: invalid RUST_MSRV: ${RUST_MSRV}" 2
 
-    [[ -n "${want}" ]] || { log "Workspace MSRV: ${have} (fallback: no rust-version) | rustc: ${have}"; return 0; }
-    [[ "$(printf '%s\n%s\n' "${want}" "${have}" | sort -V | head -n 1)" == "${want}" ]] || die "Rust too old: need >= ${want}, have ${have}" 2
+        echo "${tc}"
+        return 0
 
-    log "Workspace MSRV: ${want} | rustc: ${have}"
-
-}
-cmd_doctor () {
-
-    cd_root
-    log "== Doctor =="
-
-    has_cmd rustc || die "rustc not found"
-    has_cmd cargo || die "cargo not found"
-
-    rustc -V
-    cargo -V
-
-    if has_cmd cargo-deny; then
-        run cargo deny --version || true
-    else
-        log "cargo-deny: not installed (optional) -> cargo install cargo-deny"
     fi
 
-    if run cargo spellcheck --version >/dev/null 2>&1; then
-        run cargo spellcheck --version || true
-    else
-        log "cargo-spellcheck: not installed (optional) -> cargo install --locked cargo-spellcheck"
-    fi
+    want="$(cargo metadata --locked --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].rust_version // empty' | sort -V | tail -n 1)"
+    have="$(rustc -V | awk '{print $2}' | sed 's/[^0-9.].*$//')"
+    tc="${want#v}"
 
-    if run cargo llvm-cov --version >/dev/null 2>&1; then
-        run cargo llvm-cov --version || true
-    else
-        log "cargo-llvm-cov: not installed (optional) -> cargo install --locked cargo-llvm-cov"
-    fi
+    [[ -n "${want}" ]] || { echo "${have}"; return 0; }
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
+    [[ "$(printf '%s\n%s\n' "${tc}" "${have}" | sort -V | awk 'NR==1{print;exit}')" == "${tc}" ]] || die "Rust too old: need >= ${tc}, have ${have}" 2
 
-    log "=================="
-    log "OK"
+    echo "${tc}"
 
 }
 cmd_coverage () {
@@ -611,6 +1036,44 @@ cmd_coverage () {
     cd_root
     need_cmd cargo
     need_cmd jq
+
+    local upload=0
+    local codecov_flags=""
+    local codecov_name=""
+    local codecov_version=""
+    local codecov_token=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --upload)
+                upload=1
+                shift
+            ;;
+            --flags)
+                codecov_flags="${2-}"
+                shift 2 || true
+            ;;
+            --name)
+                codecov_name="${2-}"
+                shift 2 || true
+            ;;
+            --version)
+                codecov_version="${2-}"
+                shift 2 || true
+            ;;
+            --token)
+                codecov_token="${2-}"
+                shift 2 || true
+            ;;
+            --)
+                shift
+                break
+            ;;
+            *)
+                break
+            ;;
+        esac
+    done
 
     local mode="${1:-lcov}"
 
@@ -657,7 +1120,11 @@ cmd_coverage () {
         run cargo llvm-cov "${args[@]}" --all-targets --all-features --lcov --output-path "${out}" "$@"
     fi
 
-    log
+    if (( upload )); then
+        local job_name="${codecov_name:-coverage-${GITHUB_RUN_ID:-local}}"
+        codecov_upload "${out}" "${codecov_flags}" "${job_name}" "${codecov_version}" "${codecov_token}"
+    fi
+
     log "OK -> ${out}"
 
 }
@@ -726,9 +1193,9 @@ cmd_spellcheck () {
 cmd_check_prettier () {
 
     cd_root
-    need_node
+    has_cmd node || { (( ${CI:-0} )) && die "node is required for prettier" 2 || { log "skip: node not installed"; return 0; }; }
 
-    npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --check \
+    run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --check \
         ".github/**/*.{yml,yaml}" \
         "**/*.md" \
         ".prettierrc.yml" \
@@ -738,9 +1205,9 @@ cmd_check_prettier () {
 cmd_fix_prettier () {
 
     cd_root
-    need_node
+    has_cmd node || { (( ${CI:-0} )) && die "node is required for prettier" 2 || { log "skip: node not installed"; return 0; }; }
 
-    npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --write \
+    run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --write \
         ".github/**/*.{yml,yaml}" \
         "**/*.md" \
         ".prettierrc.yml" \
@@ -750,13 +1217,13 @@ cmd_fix_prettier () {
 cmd_check_taplo () {
 
     cd_root
-    taplo_run --check "$@"
+    run taplo fmt --check "$@"
 
 }
 cmd_fix_taplo () {
 
     cd_root
-    taplo_run "$@"
+    run taplo fmt "$@"
 
 }
 cmd_check_audit () {
@@ -775,163 +1242,191 @@ cmd_fix_audit () {
     run cargo audit fix "$@"
 
 }
-cmd_publish () {
+cmd_doctor () {
 
     cd_root
-    need_cmd cargo
+    log "== Doctor =="
 
-    local dry_run=0
-    local token=""
-    local -a packages=()
-    local -a excludes=()
-    local -a cargo_args=()
+    log ""
+    log "== Environment =="
+    log "PWD: $(pwd)"
+    log "Shell: ${SHELL:-unknown}"
+    log "User: ${USER:-${USERNAME:-unknown}}"
+    log "CI: ${CI:-0}  GITHUB_ACTIONS: ${GITHUB_ACTIONS:-0}"
+    log "PATH: ${PATH}"
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -p|--package)
-                shift || true
-                [[ -n "${1:-}" ]] || die "Error: -p/--package requires a value" 2
-                packages+=( "$1" )
-                shift || true
-            ;;
-            --package=*)
-                local v="${1#*=}"
-                [[ -n "${v}" ]] || die "Error: --package requires a value" 2
-                packages+=( "${v}" )
-                shift || true
-            ;;
-            --exclude|--execlude)
-                shift || true
-                [[ -n "${1:-}" ]] || die "Error: --exclude requires a value" 2
-                excludes+=( "$1" )
-                shift || true
-            ;;
-            --exclude=*|--execlude=*)
-                local v="${1#*=}"
-                [[ -n "${v}" ]] || die "Error: --exclude requires a value" 2
-                excludes+=( "${v}" )
-                shift || true
-            ;;
-            --token)
-                shift || true
-                token="${1:-}"
-                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
-                shift || true
-            ;;
-            --token=*)
-                token="${1#*=}"
-                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
-                shift || true
-            ;;
-            --dry-run|--dryrun|--dryr-run)
-                dry_run=1
-                shift || true
-            ;;
-            --)
-                shift
-                break
-            ;;
-            *)
-                break
-            ;;
-        esac
-    done
-
-    [[ ${#packages[@]} -gt 0 && ${#excludes[@]} -gt 0 ]] && die "Error: --exclude cannot be used with --package/-p (exclude requires --workspace)" 2
-    [[ ${dry_run} -eq 1 ]] && cargo_args+=( --dry-run )
-
-    local env_token=()
-    [[ -n "${token}" ]] && env_token=( CARGO_REGISTRY_TOKEN="${token}" )
-
-    local i=0
-    while [[ $i -lt ${#excludes[@]} ]]; do
-        cargo_args+=( --exclude "${excludes[$i]}" )
-        i=$(( i + 1 ))
-    done
-
-    i=0
-    while [[ $i -lt ${#packages[@]} ]]; do
-        cargo_args+=( --package "${packages[$i]}" )
-        i=$(( i + 1 ))
-    done
-
-    [[ ${#packages[@]} -gt 0 ]] && { "${env_token[@]}" run cargo publish "${cargo_args[@]}" "$@"; return $?; }
-    "${env_token[@]}" run cargo publish --workspace "${cargo_args[@]}" "$@"
-
-}
-cmd_yank () {
-
-    cd_root
-    need_cmd cargo
-
-    local package=""
-    local version=""
-    local undo=0
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -p|--package)
-                shift || true
-                package="${1:-}"
-                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
-                shift || true
-            ;;
-            --package=*)
-                package="${1#*=}"
-                [[ -n "${package}" ]] || die "Error: --package requires a value" 2
-                shift || true
-            ;;
-            -V|--version)
-                shift || true
-                version="${1:-}"
-                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
-                shift || true
-            ;;
-            --version=*)
-                version="${1#*=}"
-                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
-                shift || true
-            ;;
-            --undo|--restore)
-                undo=1
-                shift || true
-            ;;
-            -h|--help)
-                log "Usage:"
-                log "    vx yank -p <crate> --version <x.y.z> [--undo]"
-                return 0
-            ;;
-            *)
-                if [[ -z "${package}" ]]; then
-                    package="$1"
-                    shift || true
-                    continue
-                fi
-                if [[ -z "${version}" ]]; then
-                    version="$1"
-                    shift || true
-                    continue
-                fi
-                die "Unknown arg: $1" 2
-            ;;
-        esac
-    done
-
-    [[ -n "${package}" ]] || die "Error: missing package. Use -p/--package." 2
-    [[ -n "${version}" ]] || die "Error: missing version. Use --version." 2
-
-    local action="yank"
-    (( undo )) && action="undo yank"
-
-    version="${version#v}"
-    confirm "About to ${action} ${package} v${version}. Continue?" || die "Aborted." 1
-
-    if (( undo )); then
-        run cargo yank -p "${package}" --version "${version}" --undo
-        return 0
+    log ""
+    log "== OS / Kernel =="
+    if has_cmd uname; then
+        uname -a || true
+        uname -s || true
+        uname -m || true
+    fi
+    if [[ -f /etc/os-release ]]; then
+        log "--- /etc/os-release ---"
+        sed -n '1,20p' /etc/os-release 2>/dev/null || true
+    fi
+    if has_cmd sw_vers; then
+        sw_vers || true
     fi
 
-    run cargo yank -p "${package}" --version "${version}"
+    log ""
+    log "== Disk / CPU / Memory =="
+    if has_cmd df; then
+        df -h . 2>/dev/null || true
+    fi
+    if has_cmd nproc; then
+        log "CPU cores: $(nproc 2>/dev/null || echo '?')"
+    elif has_cmd sysctl; then
+        sysctl -n hw.ncpu 2>/dev/null || true
+    fi
+    if has_cmd free; then
+        free -h 2>/dev/null || true
+    elif has_cmd vm_stat; then
+        vm_stat 2>/dev/null | sed -n '1,12p' || true
+    fi
+
+    log ""
+    log "== Git =="
+    if has_cmd git; then
+        git --version || true
+        git rev-parse --is-inside-work-tree >/dev/null 2>&1 && {
+            log "Repo: yes"
+            git status -sb 2>/dev/null | sed -n '1,10p' || true
+            git rev-parse --short HEAD 2>/dev/null || true
+        } || log "Repo: no"
+    else
+        log "git: missing"
+    fi
+
+    log ""
+    log "== Rust =="
+    if has_cmd rustup; then
+        rustup --version || true
+        rustup show active-toolchain 2>/dev/null || true
+
+        log "--- toolchains ---"
+        rustup toolchain list 2>/dev/null || true
+
+        log "--- components (installed) ---"
+        rustup component list --installed 2>/dev/null || true
+    else
+        log "rustup: missing"
+    fi
+
+    if has_cmd rustc; then
+        rustc -Vv || true
+    else
+        log "rustc: missing"
+    fi
+
+    if has_cmd cargo; then
+        cargo -V || true
+    else
+        log "cargo: missing"
+    fi
+
+    if has_cmd cargo && has_cmd jq; then
+        log ""
+        log "== Cargo Workspace =="
+        local msrv=""
+        msrv="$(cmd_msrv 2>/dev/null || true)"
+        [[ -n "${msrv}" ]] && log "MSRV: ${msrv}"
+
+        local pkgs=""
+        pkgs="$(cargo metadata --locked --no-deps --format-version 1 2>/dev/null | jq -r '.packages | length' 2>/dev/null || true)"
+        [[ -n "${pkgs}" ]] && log "Workspace packages: ${pkgs}"
+
+        local members=""
+        members="$(cargo metadata --locked --no-deps --format-version 1 2>/dev/null | jq -r '.workspace_members | length' 2>/dev/null || true)"
+        [[ -n "${members}" ]] && log "Workspace members: ${members}"
+    else
+        log ""
+        log "== Cargo Workspace =="
+        log "skip: cargo/jq not available for metadata"
+    fi
+
+    log ""
+    log "== OS Tools (used by vx/CI) =="
+    has_cmd curl     && curl --version 2>/dev/null | sed -n '1,2p' || log "curl: missing"
+    has_cmd jq       && jq --version 2>/dev/null || log "jq: missing"
+    has_cmd perl     && perl -v 2>/dev/null | sed -n '1,2p' || log "perl: missing"
+    has_cmd awk      && awk --version 2>/dev/null | sed -n '1,2p' || log "awk: missing"
+    has_cmd grep     && grep --version 2>/dev/null | sed -n '1,2p' || log "grep: missing"
+    has_cmd sort     && sort --version 2>/dev/null | sed -n '1,2p' || log "sort: missing"
+    has_cmd tail     && tail --version 2>/dev/null | sed -n '1,2p' || log "tail: missing"
+    has_cmd hunspell && hunspell -v 2>/dev/null || log "hunspell: missing (spellcheck needs it)"
+    has_cmd git      || true
+
+    log ""
+    log "== Cargo Tools (vx ensure installs) =="
+
+    if has_cmd cargo-deny; then
+        cargo deny --version 2>/dev/null || true
+    else
+        log "cargo-deny: missing"
+    fi
+
+    if has_cmd cargo-audit; then
+        cargo audit --version 2>/dev/null || cargo audit -V 2>/dev/null || true
+    else
+        log "cargo-audit: missing"
+    fi
+
+    if has_cmd cargo-nextest; then
+        cargo nextest --version 2>/dev/null || true
+    else
+        log "cargo-nextest: missing"
+    fi
+
+    if has_cmd cargo-hack; then
+        cargo hack --version 2>/dev/null || true
+    else
+        log "cargo-hack: missing"
+    fi
+
+    if has_cmd cargo-llvm-cov; then
+        cargo llvm-cov --version 2>/dev/null || true
+    else
+        log "cargo-llvm-cov: missing"
+    fi
+
+    if has_cmd cargo-spellcheck; then
+        cargo spellcheck --version 2>/dev/null || true
+    else
+        log "cargo-spellcheck: missing"
+    fi
+
+    if has_cmd taplo; then
+        taplo --version 2>/dev/null || true
+    else
+        log "taplo: missing"
+    fi
+
+    if has_cmd cargo-ci-cache-clean; then
+        cargo-ci-cache-clean --version 2>/dev/null || true
+    else
+        log "cargo-ci-cache-clean: missing"
+    fi
+
+    log ""
+    log "== Build Toolchain (nice-to-have) =="
+    if has_cmd cc; then
+        cc --version 2>/dev/null | sed -n '1,2p' || true
+    elif has_cmd clang; then
+        clang --version 2>/dev/null | sed -n '1,2p' || true
+    elif has_cmd gcc; then
+        gcc --version 2>/dev/null | sed -n '1,2p' || true
+    else
+        log "C compiler: missing (some crates may need it)"
+    fi
+
+    has_cmd pkg-config && pkg-config --version 2>/dev/null || log "pkg-config: missing (some native deps may need it)"
+    has_cmd make       && make --version 2>/dev/null | sed -n '1,2p' || log "make: missing"
+
+    log ""
+    log "=================="
+    log "OK"
 
 }
 cmd_meta () {
@@ -1136,16 +1631,448 @@ cmd_meta () {
     run cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
 
 }
-cmd_ci () {
+cmd_publish () {
 
     cd_root
     need_cmd cargo
+
+    local dry_run=0
+    local allow_dirty=0
+    local token=""
+    local -a packages=()
+    local -a excludes=()
+    local -a cargo_args=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--package)
+                shift || true
+                [[ -n "${1:-}" ]] || die "Error: -p/--package requires a value" 2
+                packages+=( "$1" )
+                shift || true
+            ;;
+            --package=*)
+                local v="${1#*=}"
+                [[ -n "${v}" ]] || die "Error: --package requires a value" 2
+                packages+=( "${v}" )
+                shift || true
+            ;;
+            --exclude|--execlude)
+                shift || true
+                [[ -n "${1:-}" ]] || die "Error: --exclude requires a value" 2
+                excludes+=( "$1" )
+                shift || true
+            ;;
+            --exclude=*|--execlude=*)
+                local v="${1#*=}"
+                [[ -n "${v}" ]] || die "Error: --exclude requires a value" 2
+                excludes+=( "${v}" )
+                shift || true
+            ;;
+            --token)
+                shift || true
+                token="${1:-}"
+                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
+                shift || true
+            ;;
+            --token=*)
+                token="${1#*=}"
+                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
+                shift || true
+            ;;
+            --dry-run|--dryrun|--dryr-run)
+                dry_run=1
+                shift || true
+            ;;
+            --allow-dirty)
+                allow_dirty=1
+                shift || true
+            ;;
+            --)
+                shift || true
+                break
+            ;;
+            *)
+                break
+            ;;
+        esac
+    done
+
+    [[ ${#packages[@]} -gt 0 && ${#excludes[@]} -gt 0 ]] && die "Error: --exclude cannot be used with --package/-p" 2
+    local p="" env_token="${CARGO_REGISTRY_TOKEN:-}"
+
+    for p in "${packages[@]}"; do
+        [[ "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${p}" 2
+    done
+    for p in "${excludes[@]}"; do
+        [[ "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid exclude name: ${p}" 2
+    done
+
+    [[ -n "${token}" && "${token}" =~ [[:space:]] ]] && die "Error: --token contains whitespace (looks invalid)." 2
+    [[ -n "${env_token}" && "${env_token}" =~ [[:space:]] ]] && die "Error: CARGO_REGISTRY_TOKEN contains whitespace (looks invalid)." 2
+
+    if is_ci && (( dry_run == 0 )); then
+
+        if [[ "${GITHUB_EVENT_NAME:-}" != "push" || "${GITHUB_REF:-}" != refs/tags/v* ]]; then
+            die "Refusing publish in CI (need tag push: refs/tags/v*)." 2
+        fi
+
+        [[ -n "${token}" || -n "${env_token}" ]] || die "Missing registry token in CI. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
+
+    fi
+    if (( dry_run == 0 )) && has_cmd git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        if (( allow_dirty == 0 )) && [[ -n "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
+            die "Refusing publish with a dirty git working tree. Commit/stash changes, or pass --allow-dirty." 2
+        fi
+
+    fi
+    if (( dry_run == 0 )) && [[ -z "${token}" && -z "${env_token}" ]]; then
+        die "Missing publish token. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
+    fi
+
+    (( dry_run )) && cargo_args+=( --dry-run )
+
+    local i=0
+    while [[ $i -lt ${#excludes[@]} ]]; do
+        cargo_args+=( --exclude "${excludes[$i]}" )
+        i=$(( i + 1 ))
+    done
+
+    if (( dry_run == 0 )) && ! is_ci; then
+
+        local msg="About to publish "
+
+        if [[ ${#packages[@]} -gt 0 ]]; then
+            msg+="package(s): ${packages[*]}"
+        else
+            msg+="workspace"
+            [[ ${#excludes[@]} -gt 0 ]] && msg+=" (exclude: ${excludes[*]})"
+        fi
+
+        confirm "${msg}. Continue?" || die "Aborted." 1
+
+    fi
+
+    local old_token="" old_token_set=0 xtrace=0
+    [[ -v CARGO_REGISTRY_TOKEN ]] && { old_token_set=1; old_token="${CARGO_REGISTRY_TOKEN}"; }
+
+    if [[ -n "${token}" ]]; then
+
+        [[ $- == *x* ]] && { xtrace=1; set +x; }
+
+        export CARGO_REGISTRY_TOKEN="${token}"
+
+        trap '
+            if (( old_token_set )); then
+                export CARGO_REGISTRY_TOKEN="${old_token}"
+            else
+                unset CARGO_REGISTRY_TOKEN
+            fi
+
+            (( xtrace )) && set -x
+
+            trap - RETURN
+        ' RETURN
+
+    fi
+    if [[ ${#packages[@]} -gt 0 ]]; then
+
+        for p in "${packages[@]}"; do
+            run cargo publish --package "${p}" "${cargo_args[@]}" "$@"
+        done
+
+        return 0
+
+    fi
+
+    run cargo publish --workspace "${cargo_args[@]}" "$@"
+
+}
+cmd_yank () {
+
+    cd_root
+    need_cmd cargo
+
+    local package=""
+    local version=""
+    local undo=0
+    local token=""
+    local env_token="${CARGO_REGISTRY_TOKEN:-}"
+    local -a pass=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--package)
+                shift || true
+                package="${1:-}"
+                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                shift || true
+            ;;
+            --package=*)
+                package="${1#*=}"
+                [[ -n "${package}" ]] || die "Error: --package requires a value" 2
+                shift || true
+            ;;
+            -V|--version)
+                shift || true
+                version="${1:-}"
+                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
+                shift || true
+            ;;
+            --version=*)
+                version="${1#*=}"
+                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
+                shift || true
+            ;;
+            --token)
+                shift || true
+                token="${1:-}"
+                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
+                shift || true
+            ;;
+            --token=*)
+                token="${1#*=}"
+                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
+                shift || true
+            ;;
+            --undo|--restore)
+                undo=1
+                shift || true
+            ;;
+            -h|--help)
+                log "Usage:"
+                log "    vx yank -p <crate> --version <x.y.z> [--undo] [--token <...>] [-- <extra cargo args>]"
+                return 0
+            ;;
+            --)
+                shift || true
+                pass+=( "$@" )
+                break
+            ;;
+            -*)
+                pass+=( "$1" )
+                shift || true
+            ;;
+            *)
+                if [[ -z "${package}" ]]; then
+                    package="$1"
+                    shift || true
+                    continue
+                fi
+                if [[ -z "${version}" ]]; then
+                    version="$1"
+                    shift || true
+                    continue
+                fi
+                die "Unknown arg: $1 (use -- to pass extra args)" 2
+            ;;
+        esac
+    done
+
+    [[ -n "${package}" ]] || die "Error: missing package. Use -p/--package." 2
+    [[ -n "${version}" ]] || die "Error: missing version. Use --version." 2
+
+    version="${version#v}"
+
+    [[ "${package}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${package}" 2
+    [[ "${version}" =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || die "Error: invalid version: ${version}" 2
+    [[ -n "${token}" && "${token}" =~ [[:space:]] ]] && die "Error: --token contains whitespace (looks invalid)." 2
+    [[ -n "${env_token}" && "${env_token}" =~ [[:space:]] ]] && die "Error: CARGO_REGISTRY_TOKEN contains whitespace (looks invalid)." 2
+
+    if is_ci; then
+
+        if [[ "${GITHUB_EVENT_NAME:-}" != "push" || "${GITHUB_REF:-}" != refs/tags/v* ]]; then
+            die "Refusing yank in CI (need tag push: refs/tags/v*)." 2
+        fi
+
+        [[ -n "${token}" || -n "${env_token}" ]] || die "Missing registry token in CI. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
+
+    fi
+
+    local action="yank"
+    (( undo )) && action="undo yank"
+
+    if ! is_ci; then
+        confirm "About to ${action} ${package} v${version}. Continue?" || die "Aborted." 1
+    fi
+
+    local old_token="" old_token_set=0 xtrace=0
+    [[ -v CARGO_REGISTRY_TOKEN ]] && { old_token_set=1; old_token="${CARGO_REGISTRY_TOKEN}"; }
+
+    if [[ -n "${token}" ]]; then
+
+        [[ $- == *x* ]] && { xtrace=1; set +x; }
+
+        export CARGO_REGISTRY_TOKEN="${token}"
+
+        trap '
+            if (( old_token_set )); then
+                export CARGO_REGISTRY_TOKEN="${old_token}"
+            else
+                unset CARGO_REGISTRY_TOKEN
+            fi
+
+            (( xtrace )) && set -x
+
+            trap - RETURN
+        ' RETURN
+
+    fi
+    if (( undo )); then
+        run cargo yank -p "${package}" --version "${version}" --undo "${pass[@]}"
+        return 0
+    fi
+
+    run cargo yank -p "${package}" --version "${version}" "${pass[@]}"
+
+}
+
+cmd_ensure () {
+
+    cd_root
+
+    log "Installing OS Tools"
+
+    ensure_pkg "$@" jq perl grep curl hunspell awk tail sed sort head wc xargs find git
+    ensure_rust
+
+    log "Installing rustup Tools"
+
+    ensure_component rustfmt
+    ensure_component clippy
+    ensure_component llvm-tools-preview
+
+    log "Installing Cargo Tools"
+
+    ensure_crate cargo-deny            cargo-deny
+    ensure_crate cargo-audit           cargo-audit --features fix
+    ensure_crate cargo-spellcheck      cargo-spellcheck
+    ensure_crate cargo-llvm-cov        cargo-llvm-cov
+    ensure_crate taplo-cli             taplo
+    ensure_crate cargo-nextest         cargo-nextest
+    ensure_crate cargo-hack            cargo-hack
+    ensure_crate cargo-ci-cache-clean  cargo-ci-cache-clean
+
+}
+cmd_ci_msrv () {
+
+    cmd_ensure
+
+    local tc="$(cmd_msrv || true)"
+    tc="${tc#v}"
+
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
+    [[ -n "${tc}" ]] || die "Invalid msrv value" 2
+
+    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
+
+    printf "\n💥 Checking MSRV (%s) ...\n\n" "${tc}"
+    run cargo +"${tc}" check --locked --workspace --all-targets --all-features
+
+    printf "\n💥 Testing MSRV (%s) ...\n\n" "${tc}"
+    run cargo +"${tc}" test --locked --workspace --all-targets --all-features --no-run
+
+    cmd_clean_cache
+    printf "\n✅ CI MSRV Succeeded.\n\n"
+
+}
+cmd_ci_fast () {
+
+    cmd_ensure
 
     printf "\n💥 Checking ...\n\n"
     "${SELF}" check
 
     printf "\n💥 Testing ...\n\n"
     "${SELF}" test
+
+    printf "\n💥 Clippy ...\n\n"
+    "${SELF}" clippy
+
+    cmd_clean_cache
+    printf "\n✅ CI FAST Succeeded.\n\n"
+
+}
+cmd_ci_fmt () {
+
+    cmd_ensure
+
+    printf "\n💥 Check Audit ...\n\n"
+    "${SELF}" check-audit
+
+    printf "\n💥 Check Format ...\n\n"
+    "${SELF}" check-fmt
+
+    printf "\n💥 Check Taplo ...\n\n"
+    "${SELF}" check-taplo
+
+    printf "\n💥 Check Prettier ...\n\n"
+    "${SELF}" check-prettier
+
+    printf "\n💥 Check Spellcheck ...\n\n"
+    "${SELF}" spellcheck
+
+    cmd_clean_cache
+    printf "\n✅ CI Format Succeeded.\n\n"
+
+}
+cmd_ci_doc () {
+
+    cmd_ensure
+
+    printf "\n💥 Check Doc ...\n\n"
+    "${SELF}" check-doc
+
+    printf "\n💥 Test Doc ...\n\n"
+    "${SELF}" test-doc
+
+    cmd_clean_cache
+    printf "\n✅ CI Doc Succeeded.\n\n"
+
+}
+cmd_ci_hack () {
+
+    cmd_ensure
+
+    printf "\n💥 Hacking ...\n\n"
+    "${SELF}" hack
+
+    cmd_clean_cache
+    printf "\n✅ CI Hacking Succeeded.\n\n"
+
+}
+cmd_ci_coverage () {
+
+    cmd_ensure
+
+    printf "\n💥 Coverage ...\n\n"
+    "${SELF}" coverage "$@"
+
+    cmd_clean_cache
+    printf "\n✅ CI Coverage Succeeded.\n\n"
+
+}
+cmd_ci_publish () {
+
+    cmd_ensure
+
+    printf "\n💥 Publishing ...\n\n"
+    "${SELF}" publish "$@"
+
+    cmd_clean_cache
+    printf "\n✅ CI Publish Succeeded.\n\n"
+
+}
+cmd_ci () {
+
+    cmd_ensure
+
+    printf "\n💥 Checking ...\n\n"
+    "${SELF}" check
+
+    printf "\n💥 Testing ...\n\n"
+    "${SELF}" test --all
 
     printf "\n💥 Clippy ...\n\n"
     "${SELF}" clippy
@@ -1166,13 +2093,12 @@ cmd_ci () {
     "${SELF}" check-prettier
 
     printf "\n💥 Check Spellcheck ...\n\n"
-    has_cmd cargo-spellcheck && "${SELF}" spellcheck || log "skip: cargo-spellcheck not installed"
+    "${SELF}" spellcheck
 
-    local pub=0 pass=() a
-    for a in "$@"; do [[ "$a" == --publish ]] && { pub=1; continue; }; pass+=( "$a" ); done
-    (( pub )) && { printf "\n💥 Publishing ...\n\n"; "${SELF}" publish "${pass[@]}"; }
+    printf "\n💥 Coverage ...\n\n"
+    "${SELF}" coverage "$@"
 
-    (( pub )) && printf "\n✅ workspace published successfully.\n\n"
-    (( pub )) || printf "\n✅ CI pipeline succeeded.\n\n"
+    cmd_clean_cache
+    printf "\n✅ CI Pipeline Succeeded.\n\n"
 
 }

@@ -70,6 +70,8 @@ redact_arg () {
 }
 run () {
 
+    [[ $# -gt 0 ]] || die "Error: run requires a command" 2
+
     if (( VX_VERBOSE )); then
         {
             printf '+'
@@ -78,12 +80,13 @@ run () {
             for a in "$@"; do
                 printf ' %q' "$(redact_arg "${a}")"
             done
-            
+
             printf '\n'
         } >&2
     fi
 
     "$@"
+    return $?
 
 }
 has_cmd () {
@@ -100,27 +103,15 @@ need_cmd () {
 path_expand () {
 
     local p="${1:-}"
-    [[ -n "${p}" ]] || { printf '\n'; return 0; }
+    [[ -n "${p}" ]] || { printf ''; return 0; }
 
     p="${p/#\~/${HOME}}"
     printf '%s' "${p}"
 
 }
-need_file () {
-
-    local path=""
-    path="$(path_expand "${1:-}")"
-    [[ -f "${path}" ]] || die "Missing file: ${path}" 2
-
-}
-need_node () {
-
-    has_cmd npx || die "npx is not installed. Install Node.js (includes npm/npx)." 2
-
-}
 is_ci () {
 
-    [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]
+    [[ "${CI:-}" =~ ^(1|true|yes)$ ]] || [[ -n "${GITHUB_ACTIONS:-}" ]]
 
 }
 is_wsl () {
@@ -171,6 +162,16 @@ open_path () {
         explorer.exe "$(wslpath -w "${path}")" >/dev/null 2>&1 || true
         return 0
     fi
+
+    if [[ "$(uname -s 2>/dev/null || true)" =~ ^(MINGW|MSYS|CYGWIN) ]] && has_cmd explorer.exe; then
+        if has_cmd cygpath; then
+            explorer.exe "$(cygpath -w "${path}")" >/dev/null 2>&1 || true
+        else
+            explorer.exe "${path}" >/dev/null 2>&1 || true
+        fi
+        return 0
+    fi
+
     if has_cmd xdg-open; then
         xdg-open "${path}" >/dev/null 2>&1 || true
         return 0
@@ -192,6 +193,347 @@ on_err () {
 
     elog "Error: ${src}:${line} -> ${cmd}"
     exit "${ec}"
+
+}
+with_sudo () {
+
+    local uid=""
+
+    uid="${EUID:-}"
+    [[ -n "${uid}" ]] || uid="$(id -u 2>/dev/null || echo 1)"
+
+    if [[ "${uid}" -eq 0 ]]; then
+        "$@"
+        return $?
+    fi
+
+    case "$(uname -s 2>/dev/null || true)" in
+        MINGW*|MSYS*|CYGWIN*) "$@"; return $? ;;
+    esac
+    [[ "${OS:-}" == "Windows_NT" ]] && { "$@"; return $?; }
+
+    if has_cmd sudo; then
+        sudo "$@"
+        return $?
+    fi
+
+    if has_cmd doas; then
+        doas "$@"
+        return $?
+    fi
+
+    die "Need root privileges (sudo/doas not found). Run as root or install sudo/doas." 2
+
+}
+detect_pkg_mgr () {
+
+    case "$(uname -s 2>/dev/null || true)" in
+        Darwin)
+            has_cmd brew && { echo brew; return 0; }
+        ;;
+        MINGW*|MSYS*|CYGWIN*)
+            has_cmd winget && { echo winget; return 0; }
+            has_cmd choco  && { echo choco;  return 0; }
+            echo ""
+            return 1
+        ;;
+    esac
+    [[ "${OS:-}" == "Windows_NT" ]] && {
+
+        has_cmd winget && { echo winget; return 0; }
+        has_cmd choco  && { echo choco;  return 0; }
+        echo ""
+        return 1
+
+    }
+
+    if has_cmd apt-get; then echo apt; return 0; fi
+    if has_cmd dnf; then echo dnf; return 0; fi
+    if has_cmd yum; then echo yum; return 0; fi
+    if has_cmd pacman; then echo pacman; return 0; fi
+    if has_cmd zypper; then echo zypper; return 0; fi
+    if has_cmd apk; then echo apk; return 0; fi
+
+    echo ""
+    return 1
+
+}
+install_pkg () {
+
+    local manager="${1}"
+    local do_update="${2}"
+
+    shift 2
+    [[ $# -gt 0 ]] || return 0
+
+    case "${manager}" in
+        apt)
+            if (( do_update )); then
+                DEBIAN_FRONTEND=noninteractive with_sudo apt-get update
+            fi
+
+            DEBIAN_FRONTEND=noninteractive with_sudo apt-get install -y "$@"
+        ;;
+        dnf)
+            if (( do_update )); then
+                with_sudo dnf makecache -y || true
+            fi
+
+            with_sudo dnf install -y "$@"
+        ;;
+        yum)
+            if (( do_update )); then
+                with_sudo yum makecache -y || true
+            fi
+
+            with_sudo yum install -y "$@"
+        ;;
+        pacman)
+            if (( do_update )); then
+                with_sudo pacman -Syu --noconfirm --needed "$@"
+            else
+                with_sudo pacman -S --noconfirm --needed "$@"
+            fi
+        ;;
+        zypper)
+            if (( do_update )); then
+                with_sudo zypper --non-interactive refresh || true
+            fi
+
+            with_sudo zypper --non-interactive install -y "$@"
+        ;;
+        apk)
+            with_sudo apk add --no-cache "$@"
+        ;;
+        brew)
+            need_cmd brew
+
+            if (( do_update )); then
+                brew update >/dev/null 2>&1 || true
+                brew install "$@"
+            else
+                HOMEBREW_NO_AUTO_UPDATE=1 brew install "$@"
+            fi
+        ;;
+        winget)
+            local p=""
+            for p in "$@"; do
+                run winget install --id "${p}" -e --accept-package-agreements --accept-source-agreements --silent
+            done
+        ;;
+        choco)
+            local p=""
+            for p in "$@"; do
+                run choco install -y "${p}"
+            done
+        ;;
+        *)
+            die "Unsupported package manager: ${manager}" 2
+        ;;
+    esac
+
+}
+dedupe_inplace () {
+
+    local name="${1:-}"
+    [[ -n "${name}" ]] || return 0
+
+    [[ "${name}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || die "Invalid array name: ${name}" 2
+
+    local -a in=()
+    eval "in=(\"\${${name}[@]}\")"
+
+    local -a out=()
+    local x="" y="" found=0
+
+    for x in "${in[@]}"; do
+
+        [[ -n "${x}" ]] || continue
+
+        found=0
+        for y in "${out[@]}"; do
+            if [[ "${y}" == "${x}" ]]; then
+                found=1
+                break
+            fi
+        done
+
+        (( found )) && continue
+        out+=( "${x}" )
+
+    done
+
+    local assign=""
+    for x in "${out[@]}"; do
+        assign+=" $(printf '%q' "${x}")"
+    done
+
+    eval "${name}=(${assign# })"
+
+}
+win_try_add_paths () {
+
+    local -a candidates=(
+        "/c/Program Files/Git/usr/bin"
+        "/c/Program Files/Git/bin"
+        "/c/Program Files (x86)/Git/usr/bin"
+        "/c/Program Files (x86)/Git/bin"
+        "/c/ProgramData/chocolatey/bin"
+        "/c/Windows/System32"
+        "/c/Windows"
+    )
+
+    local p=""
+    for p in "${candidates[@]}"; do
+
+        [[ -d "${p}" ]] || continue
+
+        case ":${PATH}:" in
+            *":${p}:"*) ;;
+            *) export PATH="${p}:${PATH}" ;;
+        esac
+
+    done
+
+}
+ensure_pkg () {
+
+    local do_update=1
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            --no-update) do_update=0; shift ;;
+            --) shift; break ;;
+            -*) die "Unknown option: ${1}" 2 ;;
+            *) break ;;
+        esac
+    done
+
+    local -a tools=( "$@" )
+    [[ ${#tools[@]} -gt 0 ]] || tools=( jq perl grep curl )
+
+    local uname_s os
+    uname_s="$(uname -s 2>/dev/null || true)"
+
+    case "${uname_s}" in
+        Linux) os="linux" ;;
+        Darwin) os="mac" ;;
+        MINGW*|MSYS*|CYGWIN*) os="win" ;;
+        *) [[ "${OS:-}" == "Windows_NT" ]] && os="win" || return 0 ;;
+    esac
+
+    if [[ "${os}" == "linux" || "${os}" == "mac" ]]; then
+
+        local mgr=""
+
+        if [[ "${os}" == "linux" ]]; then
+
+            mgr="$(detect_pkg_mgr)"
+            [[ -n "${mgr}" ]] || die "No supported package manager found (apt/dnf/yum/pacman/zypper/apk)." 2
+
+        else
+
+            has_cmd brew || die "Homebrew is required on macOS. Install brew then retry." 2
+            mgr="brew"
+
+        fi
+
+        local -a pkgs=()
+        local t="" pkg=""
+
+        for t in "${tools[@]}"; do
+
+            has_cmd "${t}" && continue
+
+            pkg="${t}"
+
+            case "${t}" in
+                awk) pkg="gawk" ;;
+            esac
+
+            if [[ "${os}" == "linux" ]]; then
+                case "${t}" in
+                    head|tail|wc|sort) pkg="coreutils" ;;
+                    find|xargs)        pkg="findutils" ;;
+                esac
+            fi
+
+            pkgs+=( "${pkg}" )
+
+        done
+
+        if [[ "${os}" == "linux" ]]; then
+            has_cmd update-ca-certificates || pkgs+=( "ca-certificates" )
+        fi
+
+        dedupe_inplace pkgs
+        [[ ${#pkgs[@]} -eq 0 ]] && return 0
+
+        run install_pkg "${mgr}" "${do_update}" "${pkgs[@]}"
+        return 0
+
+    fi
+
+    local -a w_ids=()
+    local -a c_pkgs=()
+    local need_git=0
+    local t=""
+
+    for t in "${tools[@]}"; do
+
+        has_cmd "${t}" && continue
+
+        case "${t}" in
+            jq)
+                w_ids+=( "jqlang.jq" )
+                c_pkgs+=( "jq" )
+            ;;
+            hunspell)
+                c_pkgs+=( "hunspell.portable" )
+            ;;
+            *)
+                need_git=1
+            ;;
+        esac
+
+    done
+
+    if (( need_git )); then
+        w_ids+=( "Git.Git" )
+        c_pkgs+=( "git" )
+    fi
+
+    dedupe_inplace w_ids
+    dedupe_inplace c_pkgs
+
+    if has_cmd winget && (( ${#w_ids[@]} > 0 )); then
+        run install_pkg "winget" 0 "${w_ids[@]}"
+        win_try_add_paths
+    fi
+
+    if has_cmd choco && (( ${#c_pkgs[@]} > 0 )); then
+        run install_pkg "choco" 0 "${c_pkgs[@]}"
+        win_try_add_paths
+    fi
+
+    if ! has_cmd winget && ! has_cmd choco; then
+        log "Windows detected, but neither winget nor choco found."
+        log "Install one of them, or install Git for Windows and retry."
+        return 0
+    fi
+
+    if (( need_git )); then
+        has_cmd git || log "Note: Git installed but not visible yet. Restart shell to refresh PATH."
+    fi
+
+    return 0
+
+}
+need_file () {
+
+    local path=""
+    path="$(path_expand "${1:-}")"
+    [[ -f "${path}" ]] || die "Missing file: ${path}" 2
 
 }
 should_skip () {
@@ -233,11 +575,7 @@ source_loader () {
         base="${base%.sh}"
 
         should_skip "${base}" "${extra_skip[@]}" && continue
-
-        source "${file}" >/dev/null 2>&1 || {
-            (( VX_VERBOSE )) && elog "warn: failed to source: ${file}"
-            continue
-        }
+        source "${file}" || die "Failed to source: ${file}" 2
 
     done
 
@@ -284,7 +622,6 @@ doc_render () {
 
         if [[ -z "${chosen}" ]]; then
             source "${file}" >/dev/null 2>&1 || { (( VX_VERBOSE )) && elog "warn: failed to source: ${file}"; continue; }
-
             declare -F "${fn1}" >/dev/null 2>&1 && chosen="${fn1}"
             [[ -z "${chosen}" ]] && declare -F "${fn2}" >/dev/null 2>&1 && chosen="${fn2}"
         fi
@@ -340,7 +677,7 @@ dispatch () {
 
     case "${cmd}" in
         help|-h|--help)
-            doc_render "$@"
+            doc_render
             return 0
         ;;
     esac
