@@ -35,6 +35,7 @@ Desktop.ini
 **/coverage/
 **/*.lcov
 lcov.*
+codecov.*
 **/tarpaulin-report.html
 
 **/.mdbook/

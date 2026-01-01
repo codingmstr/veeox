@@ -11,7 +11,6 @@ git_cmd () {
     local ssh_cmd="${2:-}"
     shift 2 || true
 
-    # Never allow interactive prompts (CI + local safety)
     if (( VX_VERBOSE )) && [[ "${kind}" == "http" ]]; then
         local old="${VX_VERBOSE}"
         VX_VERBOSE=0
@@ -25,7 +24,6 @@ git_cmd () {
         VX_VERBOSE="${old}"
         return $?
     fi
-
     if [[ -n "${ssh_cmd}" ]]; then
         GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${ssh_cmd}" run git "$@"
         return $?
@@ -74,7 +72,59 @@ git_switch () {
 }
 git_is_semver () {
 
-    [[ "${1}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([\-+][0-9A-Za-z\.\-]+)?$ ]]
+    local v="${1:-}"
+    local main="" rest="" pre="" build=""
+
+    [[ -n "${v}" ]] || return 1
+
+    if [[ "${v}" == *+* ]]; then
+        main="${v%%+*}"
+        build="${v#*+}"
+    else
+        main="${v}"
+        build=""
+    fi
+
+    if [[ "${main}" == *-* ]]; then
+        rest="${main%%-*}"
+        pre="${main#*-}"
+    else
+        rest="${main}"
+        pre=""
+    fi
+
+    if [[ "${rest}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+        :
+    else
+        return 1
+    fi
+
+    if [[ -n "${pre}" ]]; then
+        IFS='.' read -r -a ids <<< "${pre}"
+        ((${#ids[@]})) || return 1
+
+        local id=""
+        for id in "${ids[@]}"; do
+            [[ -n "${id}" ]] || return 1
+            [[ "${id}" =~ ^[0-9A-Za-z-]+$ ]] || return 1
+
+            if [[ "${id}" =~ ^[0-9]+$ ]]; then
+                [[ "${id}" == "0" || "${id}" =~ ^[1-9][0-9]*$ ]] || return 1
+            fi
+        done
+    fi
+    if [[ -n "${build}" ]]; then
+        IFS='.' read -r -a ids <<< "${build}"
+        ((${#ids[@]})) || return 1
+
+        local id=""
+        for id in "${ids[@]}"; do
+            [[ -n "${id}" ]] || return 1
+            [[ "${id}" =~ ^[0-9A-Za-z-]+$ ]] || return 1
+        done
+    fi
+
+    return 0
 
 }
 git_norm_tag () {
@@ -214,7 +264,6 @@ git_auth_resolve () {
         env_auth="$(env_get "${VX_GITHUB_AUTH}")"
         [[ -n "${env_auth}" ]] && auth="${env_auth}" || auth="auto"
     fi
-
     if [[ "${auth}" == "auto" ]]; then
         if is_ci && { [[ -n "${token}" ]] || [[ -n "$(env_get "${token_env}")" ]]; }; then
             auth="http"
@@ -222,7 +271,6 @@ git_auth_resolve () {
             auth="ssh"
         fi
     fi
-
     if [[ "${auth}" == "ssh" ]]; then
 
         kind="ssh"
@@ -238,11 +286,12 @@ git_auth_resolve () {
             key="${HOME}/.ssh/id_ed25519"
         fi
 
+        ssh_cmd='ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2'
+
         if [[ -n "${key}" ]]; then
             key="${key/#\~/${HOME}}"
             [[ -f "${key}" ]] || die "Missing ssh key file: ${key}" 2
 
-            # Safer non-interactive SSH + avoids hanging forever
             printf -v ssh_cmd 'ssh -i %q -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2' "${key}"
         fi
 
@@ -250,7 +299,6 @@ git_auth_resolve () {
         return 0
 
     fi
-
     if [[ "${auth}" == "http" ]]; then
 
         kind="http"
@@ -326,6 +374,7 @@ git_help () {
     remote           Show remote url (redacted) + protocol
 
     push             Add/commit + push branch (+ optional tag/release)
+    changelog        Generate changelog via git diff/log (auto baseline in CI)
 
     new-branch       Create/switch branch (tracks remote if exists)
     remove-branch    Delete branch locally + remote
@@ -335,23 +384,78 @@ git_help () {
 OUT
 }
 
+cmd_changelog () {
+
+    cd_root
+    need_cmd grep
+    need_cmd mktemp
+    need_cmd mv
+    need_cmd date
+
+    local tag="${1:-unreleased}"
+    local msg="${2:-}"
+    local file="${ROOT_DIR}/CHANGELOG.md"
+    local day="" tmp="" line="" first=""
+
+    [[ -n "${msg}" ]] || msg="Track ${tag} release."
+
+    msg="${msg//$'\r'/ }"
+    msg="${msg//$'\n'/ }"
+
+    if [[ -f "${file}" ]]; then
+        IFS= read -r first < "${file}" 2>/dev/null || true
+
+        if printf '%s\n' "${first}" | grep -Fq "## ${tag} - " && printf '%s\n' "${first}" | grep -Fq "— ${msg}"; then
+            log "changelog: already written -> skip"
+            return 0
+        fi
+    fi
+
+    day="$(date -u +%Y-%m-%d)"
+    line="## ${tag} - ${day} — ${msg}"
+
+    tmp="$(mktemp)" || die "changelog: mktemp failed" 2
+
+    if [[ -f "${file}" ]]; then
+        { printf '%s\n\n' "${line}"; cat "${file}"; } > "${tmp}"
+    else
+        printf '%s\n\n' "${line}" > "${tmp}"
+    fi
+
+    mv -f -- "${tmp}" "${file}"
+    log "changelog: updated ${file}"
+
+}
 cmd_root_version () {
 
-    local toml="${ROOT_DIR}/Cargo.toml"
-    [[ -f "${toml}" ]] || return 1
+    local v="" toml="${ROOT_DIR}/Cargo.toml"
+    [[ -f "${toml}" ]] || die "Can't detect version: missing file: ${toml}" 2
 
-    awk '
-        BEGIN { sect=""; pkg="" }
+    v="$(
+        awk '
+            BEGIN {
+                sect=""
+                ws=""
+                pkg=""
+            }
 
-        /^\[workspace\.package\]/ { sect="ws"; next }
-        /^\[package\]/           { sect="pkg"; next }
-        /^\[/                    { sect=""; next }
+            /^\[workspace\.package\][[:space:]]*$/ { sect="ws"; next }
+            /^\[package\][[:space:]]*$/           { sect="pkg"; next }
+            /^\[[^]]+\][[:space:]]*$/             { sect=""; next }
 
-        sect=="ws"  && match($0, /^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) { print m[1]; exit }
-        sect=="pkg" && pkg==""   && match($0, /^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) { pkg=m[1] }
+            sect=="ws"  && ws==""  && match($0, /^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) { ws=m[1]; next }
+            sect=="pkg" && pkg=="" && match($0, /^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) { pkg=m[1]; next }
 
-        END { if (pkg!="") print pkg }
-    ' "${toml}"
+            END {
+                if (ws != "")  { print ws;  exit 0 }
+                if (pkg != "") { print pkg; exit 0 }
+                exit 1
+            }
+        ' "${toml}" 2>/dev/null
+    )" || die "Can't detect version from ${toml}." 2
+
+    [[ -n "${v}" ]] || die "Can't detect version from ${toml}." 2
+    printf '%s\n' "${v}"
 
 }
 cmd_init () {
@@ -481,15 +585,10 @@ cmd_new_branch () {
     git_repo_guard
 
     local remote="origin"
+    local key="" token="" b="" token_env="${VX_GITHUB_TOKEN}"
+    local auth="$(env_get "${VX_GITHUB_AUTH}")"
 
-    local auth=""
-    auth="$(env_get "${VX_GITHUB_AUTH}")"
     [[ -n "${auth}" ]] || auth="auto"
-
-    local key=""
-    local token=""
-    local token_env="${VX_GITHUB_TOKEN}"
-    local b=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -531,15 +630,10 @@ cmd_remove_branch () {
     git_repo_guard
 
     local remote="origin"
-
-    local auth=""
-    auth="$(env_get "${VX_GITHUB_AUTH}")"
+    local key="" token="" b="" token_env="${VX_GITHUB_TOKEN}"
+    local auth="$(env_get "${VX_GITHUB_AUTH}")"
+    
     [[ -n "${auth}" ]] || auth="auto"
-
-    local key=""
-    local token=""
-    local token_env="${VX_GITHUB_TOKEN}"
-    local b=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -577,8 +671,7 @@ cmd_new_release () {
 
     local remote="origin"
 
-    local auth=""
-    auth="$(env_get "${VX_GITHUB_AUTH}")"
+    local auth="$(env_get "${VX_GITHUB_AUTH}")"
     [[ -n "${auth}" ]] || auth="auto"
 
     local key=""
@@ -587,17 +680,19 @@ cmd_new_release () {
     local tag=""
     local msg=""
     local force=0
+    local changelog=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -r|--remote)    shift; remote="${1:-}";    [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
-            --auth)         shift; auth="${1:-}";      [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
-            --key)          shift; key="${1:-}";       [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
-            --token)        shift; token="${1:-}";     [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
-            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -f|--force)     force=1; shift ;;
-            -m|--message)   shift; msg="${1:-}"; [[ -n "${msg}" ]] || die "Error: --message requires a value" 2; shift ;;
-            -h|--help)      log "Usage: vx new-release <tag> [--message <msg>] [--force] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
+            -r|--remote)     shift; remote="${1:-}";    [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)          shift; auth="${1:-}";      [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)           shift; key="${1:-}";       [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)         shift; token="${1:-}";     [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
+            --token-env)     shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -f|--force)      force=1; shift ;;
+            -ch|--changelog) changelog=1; shift ;;
+            -m|--message)    shift; msg="${1:-}"; [[ -n "${msg}" ]] || die "Error: --message requires a value" 2; shift ;;
+            -h|--help)       log "Usage: vx new-release <tag> [--message <msg>] [--force] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
             --) shift || true; break ;;
             -*) die "Unknown arg: $1" 2 ;;
             *)  tag="$1"; shift || true; break ;;
@@ -605,8 +700,17 @@ cmd_new_release () {
     done
 
     [[ -n "${tag}" ]] || die "Usage: vx new-release <tag> ..." 2
-    [[ -n "${tag}" ]] && tag="$(git_norm_tag "${tag}")"
+    tag="$(git_norm_tag "${tag}")"
+   
     [[ -n "${msg}" ]] || msg="release: ${tag}"
+    (( changelog )) && cmd_changelog "${tag}" "${msg}"
+
+    if has_cmd git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        if [[ -n "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
+            git add -A
+            git commit -m "changelog: ${tag}" || die "git commit failed (check user.name/user.email)." 2
+        fi
+    fi
 
     local kind="" target="" safe="" ssh_cmd=""
     IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
@@ -685,17 +789,19 @@ cmd_push () {
     local branch=""
     local msg="done"
     local force=0
+    local changelog=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -r|--remote)    shift; remote="${1:-}";    [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
-            --auth)         shift; auth="${1:-}";      [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
-            --key)          shift; key="${1:-}";       [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
-            --token)        shift; token="${1:-}";     [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
-            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -b|--branch)    shift; branch="${1:-}";    [[ -n "${branch}" ]] || die "Missing branch" 2;                   shift ;;
-            -m|--message)   shift; msg="${1:-}";       [[ -n "${msg}" ]]    || die "Missing message" 2;                  shift ;;
-            -f|--force)     force=1; shift ;;
+            -r|--remote)     shift; remote="${1:-}";    [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)          shift; auth="${1:-}";      [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)           shift; key="${1:-}";       [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)         shift; token="${1:-}";     [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
+            --token-env)     shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -b|--branch)     shift; branch="${1:-}";    [[ -n "${branch}" ]] || die "Missing branch" 2;                   shift ;;
+            -m|--message)    shift; msg="${1:-}";       [[ -n "${msg}" ]]    || die "Missing message" 2;                  shift ;;
+            -f|--force)      force=1; shift ;;
+            -ch|--changelog) changelog=1; shift ;;
             -t|--tag|--release)
                 shift || true
                 if [[ -n "${1:-}" && "${1:-}" != -* ]]; then
@@ -721,24 +827,20 @@ cmd_push () {
 
     local kind="" target="" safe="" ssh_cmd=""
     IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
+    [[ -n "${kind}" && -n "${target}" ]] || die "Failed to resolve git auth for remote '${remote}'." 2
 
     if [[ -z "${branch}" ]]; then
         branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
         [[ -n "${branch}" ]] || branch="main"
     fi
     if [[ "${tag}" == "auto" ]]; then
-        local v=""
-        v="$(cmd_root_version || true)"
+        local v="$(cmd_root_version || true)"
         [[ -n "${v}" ]] || die "Can't detect version from ${ROOT_DIR}/Cargo.toml" 2
         tag="v${v}"
     fi
     if [[ -n "${tag}" ]]; then
         tag="$(git_norm_tag "${tag}")"
         [[ "${msg}" != "done" ]] || msg="Track ${tag} release."
-       
-        if git_remote_has_tag "${kind}" "${ssh_cmd}" "${target}" "${tag}" && (( force == 0 )); then
-            die "Tag exists on remote (${remote}/${tag}). Use -f to overwrite." 2
-        fi
     fi
 
     git_cmd "${kind}" "${ssh_cmd}" add -A
@@ -748,13 +850,17 @@ cmd_push () {
     fi
     if [[ -n "${tag}" ]]; then
 
-        git_cmd "${kind}" "${ssh_cmd}" tag -d "${tag}" >/dev/null 2>&1 || true
+        if git_remote_has_tag "${kind}" "${ssh_cmd}" "${target}" "${tag}" && (( force == 0 )); then
+            log "Tag exists on remote (${remote}/${tag}). Use -f to overwrite."
+            tag=""
+        else
+            (( changelog )) && cmd_changelog "${tag}" "${msg}"
+            git_cmd "${kind}" "${ssh_cmd}" add -A
 
-        if (( force )); then
-            git_cmd "${kind}" "${ssh_cmd}" push "${target}" --delete "${tag}" >/dev/null 2>&1 || true
+            if ! git_cmd "${kind}" "${ssh_cmd}" diff --cached --quiet >/dev/null 2>&1; then
+                git_cmd "${kind}" "${ssh_cmd}" commit -m "changelog: ${tag}" || die "git commit failed (check user.name/user.email)." 2
+            fi
         fi
-
-        git_cmd "${kind}" "${ssh_cmd}" tag -a "${tag}" -m "${msg}"
 
     fi
 
@@ -776,11 +882,21 @@ cmd_push () {
     fi
 
     if [[ -n "${tag}" ]]; then
+
+        git_cmd "${kind}" "${ssh_cmd}" tag -d "${tag}" >/dev/null 2>&1 || true
+
+        if (( force )); then
+            git_cmd "${kind}" "${ssh_cmd}" push "${target}" --delete "${tag}" >/dev/null 2>&1 || true
+        fi
+
+        git_cmd "${kind}" "${ssh_cmd}" tag -a "${tag}" -m "${msg}"
+
         if (( force )); then
             git_cmd "${kind}" "${ssh_cmd}" push --force "${target}" "${tag}"
         else
             git_cmd "${kind}" "${ssh_cmd}" push "${target}" "${tag}"
         fi
+
     fi
 
     log "OK: pushed via ${kind} -> ${safe}"

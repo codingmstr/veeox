@@ -210,13 +210,13 @@ with_sudo () {
     case "$(uname -s 2>/dev/null || true)" in
         MINGW*|MSYS*|CYGWIN*) "$@"; return $? ;;
     esac
+
     [[ "${OS:-}" == "Windows_NT" ]] && { "$@"; return $?; }
 
     if has_cmd sudo; then
         sudo "$@"
         return $?
     fi
-
     if has_cmd doas; then
         doas "$@"
         return $?
@@ -238,6 +238,7 @@ detect_pkg_mgr () {
             return 1
         ;;
     esac
+
     [[ "${OS:-}" == "Windows_NT" ]] && {
 
         has_cmd winget && { echo winget; return 0; }
@@ -337,7 +338,6 @@ dedupe_inplace () {
 
     local name="${1:-}"
     [[ -n "${name}" ]] || return 0
-
     [[ "${name}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || die "Invalid array name: ${name}" 2
 
     local -a in=()
@@ -384,6 +384,7 @@ win_try_add_paths () {
     )
 
     local p=""
+
     for p in "${candidates[@]}"; do
 
         [[ -d "${p}" ]] || continue
@@ -515,6 +516,8 @@ ensure_pkg () {
 
     fi
 
+    win_try_add_paths
+
     local -a w_ids=()
     local -a c_pkgs=()
     local need_git=0
@@ -600,7 +603,9 @@ source_loader () {
     [[ -n "${dir}" ]] || die "source_loader: missing dir" 2
     [[ -d "${dir}" ]] || die "source_loader: not a dir: ${dir}" 2
 
-    local -a extra_skip=( "$@" )
+    local -a extra_skip=()
+    (( $# )) && extra_skip=( "$@" ) || extra_skip=( "" )
+
     local file base
     local nullglob_was_set=0
 
@@ -623,6 +628,7 @@ source_loader () {
 doc_render () {
 
     local dir="${SCRIPT_DIR}"
+    local file name mod fn1 fn2 title chosen printed=0 nullglob_was_set=0
 
     printf '%s\n' \
         '' \
@@ -633,10 +639,6 @@ doc_render () {
         '    --yes,    -y     Non-interactive (assume yes)' \
         '    --quiet,  -q     Less output' \
         '    --verbose,-v     Print executed commands'
-
-    local file name mod fn1 fn2 title chosen
-    local printed=0
-    local nullglob_was_set=0
 
     shopt -q nullglob && nullglob_was_set=1
     shopt -s nullglob
@@ -743,6 +745,7 @@ boot () {
     source_loader
 
     parse "$@"
-    dispatch "${VX_CMD}" "${VX_ARGS[@]}"
+
+    [[ ${VX_ARGS[0]+x} ]] && dispatch "${VX_CMD}" "${VX_ARGS[@]}" || dispatch "${VX_CMD}"
 
 }

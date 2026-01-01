@@ -51,7 +51,7 @@ ensure_rust () {
     has_cmd rustup || die "rustup installed but not found in PATH (check ~/.cargo/bin)." 2
 
     run rustup toolchain install "${tc}" --profile minimal
-    run rustup default "${tc}"
+    is_ci && run rustup default "${tc}"
 
 }
 ensure_node () {
@@ -181,7 +181,7 @@ ensure_crate () {
     export PATH="${HOME}/.cargo/bin:${PATH}"
     has_cmd "${bin}" && return 0
 
-    run cargo install --locked "${crate}" "$@" || die "Failed to install: ${crate}" 2
+    run cargo install "${crate}" "$@" || die "Failed to install: ${crate}" 2
     has_cmd "${bin}" || die "Installed ${crate} but '${bin}' not found in PATH (check ~/.cargo/bin)." 2
 
 }
@@ -365,6 +365,7 @@ cargo_help () {
     check            Fast compile checks for all crates and targets (no binaries produced)
     test             Run the full test suite (workspace-wide or a single crate)
     hack             Run feature matrix checks using cargo-hack (each-feature or powerset)
+    semver           Run cargo semver checks using cargo-semver-checks
     bench            Run benchmarks (workspace-wide or a single crate)
     example          Run an example target by name, forwarding extra args after --
     clean            Remove build artifacts
@@ -400,14 +401,15 @@ cargo_help () {
     publish          Publish crates in dependency order (workspace publish)
     yank             Yank a published version (or undo yank)
 
-    ci               Run a local CI-like workflow (checks + tests + lints)
     ci-fast          CI fast pipeline (check + test + clippy)
     ci-fmt           CI format pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)
     ci-doc           CI docs pipeline (check-doc + test-doc)
     ci-hack          CI feature-matrix pipeline (cargo-hack)
     ci-coverage      CI coverage pipeline (llvm-cov)
     ci-msrv          CI MSRV pipeline (check + test --no-run on MSRV toolchain)
+    ci-semver        CI SEMVER pipeline (check semver)
     ci-publish       CI publish gate then publish (full checks + publish)
+    ci-local         Run a local CI full workflow ci pipline (checks + tests + fmts + hack + doc + semver + coverage)
 OUT
 }
 
@@ -560,7 +562,7 @@ cmd_check () {
 
     cd_root
     need_cmd cargo
-    run cargo check --locked --workspace --all-targets --all-features "$@"
+    run cargo check --workspace --all-targets --all-features "$@"
 
 }
 cmd_fix_ws () {
@@ -697,11 +699,11 @@ cmd_clippy () {
     need_cmd jq
 
     local -a pkgs=()
-  
+
     while IFS= read -r line; do
         pkgs+=( "${line}" )
     done < <(only_publish_pkgs)
-  
+
     [[ ${#pkgs[@]} -gt 0 ]] || die "No publishable workspace crates found" 2
 
     local args=()
@@ -723,15 +725,9 @@ cmd_deny () {
 
     cd_root
     need_cmd cargo
+    need_cmd cargo-deny
 
-    if has_cmd cargo-deny; then
-        run cargo deny check "$@"
-        return 0
-    fi
-
-    log "cargo-deny is not installed."
-    log "Install: cargo install cargo-deny"
-    exit 2
+    run cargo deny check "$@"
 
 }
 cmd_test () {
@@ -933,11 +929,11 @@ cmd_bench () {
     done
 
     if [[ -n "${package}" ]]; then
-        run cargo bench --locked -p "${package}" --all-features "${pass[@]}"
+        run cargo bench -p "${package}" --all-features "${pass[@]}"
         return 0
     fi
 
-    run cargo bench --locked --workspace --all-features "${pass[@]}"
+    run cargo bench --workspace --all-features "${pass[@]}"
 
 }
 cmd_example () {
@@ -1020,7 +1016,7 @@ cmd_msrv () {
 
     fi
 
-    want="$(cargo metadata --locked --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].rust_version // empty' | sort -V | tail -n 1)"
+    want="$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].rust_version // empty' | sort -V | tail -n 1)"
     have="$(rustc -V | awk '{print $2}' | sed 's/[^0-9.].*$//')"
     tc="${want#v}"
 
@@ -1029,6 +1025,111 @@ cmd_msrv () {
     [[ "$(printf '%s\n%s\n' "${tc}" "${have}" | sort -V | awk 'NR==1{print;exit}')" == "${tc}" ]] || die "Rust too old: need >= ${tc}, have ${have}" 2
 
     echo "${tc}"
+
+}
+cmd_msrv_check () {
+
+    local tc="$(cmd_msrv 2>/dev/null || true)"
+    tc="${tc#v}"
+
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid msrv value: ${tc}" 2
+
+    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
+    run env RUSTFLAGS="" cargo +"${tc}" check --workspace --all-targets --all-features
+
+}
+cmd_msrv_test () {
+
+    local tc="$(cmd_msrv 2>/dev/null || true)"
+    tc="${tc#v}"
+
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid msrv value: ${tc}" 2
+
+    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
+    run env RUSTFLAGS="" cargo +"${tc}" test --workspace --all-targets --all-features --no-run
+
+}
+cmd_semver () {
+
+    cd_root
+    need_cmd git
+    need_cmd cargo
+    need_cmd cargo-semver-checks
+
+    local remote="${VX_GIT_REMOTE:-origin}"
+    local baseline="${CARGO_SEMVER_CHECKS_BASELINE_REV:-${VX_SEMVER_BASELINE:-}}"
+
+    if [[ "${1:-}" == "--baseline" ]]; then
+        shift || true
+        baseline="${1:-}"
+        [[ -n "${baseline}" ]] || die "semver: --baseline requires a value" 2
+        shift || true
+    fi
+
+    if [[ -z "${baseline}" ]]; then
+
+        if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
+
+            local base="${GITHUB_BASE_REF:-}"
+            [[ -n "${base}" ]] || die "semver: missing GITHUB_BASE_REF. Provide --baseline <rev>." 2
+
+            run git fetch --no-tags "${remote}" "${base}:refs/remotes/${remote}/${base}" >/dev/null 2>&1 || \
+                die "semver: failed to fetch ${remote}/${base}. Provide --baseline <rev>." 2
+
+            baseline="${remote}/${base}"
+
+        elif [[ "${GITHUB_EVENT_NAME:-}" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]]; then
+
+            run git fetch --tags --force --prune "${remote}" >/dev/null 2>&1 || true
+
+            local cur="${GITHUB_REF_NAME}"
+
+            baseline="$(
+                git tag --list 'v*' --sort=-v:refname |
+                grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
+                grep -vx "${cur}" |
+                head -n 1 || true
+            )"
+
+            if [[ -z "${baseline}" ]]; then
+                log "semver: first stable release (no previous vMAJOR.MINOR.PATCH tag). Skipping."
+                return 0
+            fi
+
+        else
+
+            local def=""
+            def="$(git symbolic-ref -q "refs/remotes/${remote}/HEAD" 2>/dev/null || true)"
+            def="${def#refs/remotes/${remote}/}"
+            [[ -n "${def}" ]] || def="main"
+
+            run git fetch --no-tags "${remote}" "${def}:refs/remotes/${remote}/${def}" >/dev/null 2>&1 || true
+
+            if git show-ref --verify --quiet "refs/remotes/${remote}/${def}"; then
+                baseline="${remote}/${def}"
+            else
+                log "semver: no baseline branch found (${remote}/${def}). Skipping."
+                return 0
+            fi
+
+        fi
+    fi
+
+    [[ -n "${baseline}" ]] || { log "semver: no baseline. Skipping."; return 0; }
+    git rev-parse --verify "${baseline}^{commit}" >/dev/null 2>&1 || die "semver: baseline '${baseline}' is not a valid commit/tag." 2
+
+    export CARGO_SEMVER_CHECKS_BASELINE_REV="${baseline}"
+    log "semver: baseline=${baseline}"
+
+    local -a extra=()
+
+    if cargo semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev'; then
+        extra+=(--baseline-rev "${baseline}")
+    fi
+
+    run cargo semver-checks "${extra[@]}" "$@"
 
 }
 cmd_coverage () {
@@ -1042,6 +1143,7 @@ cmd_coverage () {
     local codecov_name=""
     local codecov_version=""
     local codecov_token=""
+    local mode="lcov"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1049,12 +1151,16 @@ cmd_coverage () {
                 upload=1
                 shift
             ;;
-            --flags)
-                codecov_flags="${2-}"
+            --mode)
+                mode="${2-}"
                 shift 2 || true
             ;;
             --name)
                 codecov_name="${2-}"
+                shift 2 || true
+            ;;
+            --flags)
+                codecov_flags="${2-}"
                 shift 2 || true
             ;;
             --version)
@@ -1075,19 +1181,11 @@ cmd_coverage () {
         esac
     done
 
-    local mode="${1:-lcov}"
-
-    if [[ "${mode}" == "lcov" || "${mode}" == "codecov" || "${mode}" == "json" ]]; then
-        shift || true
-    else
-        mode="lcov"
-    fi
-
     if ! run cargo llvm-cov --version >/dev/null 2>&1; then
         log "cargo-llvm-cov is not installed."
         log "Install:"
         log "  rustup component add llvm-tools"
-        log "  cargo install --locked cargo-llvm-cov"
+        log "  cargo install cargo-llvm-cov"
         exit 2
     fi
     if has_cmd rustup; then
@@ -1141,7 +1239,7 @@ cmd_spellcheck () {
 
     if ! run cargo spellcheck --version >/dev/null 2>&1; then
         log "cargo-spellcheck is not installed."
-        log "Install: cargo install --locked cargo-spellcheck"
+        log "Install: cargo install cargo-spellcheck"
         exit 2
     fi
 
@@ -1193,7 +1291,8 @@ cmd_spellcheck () {
 cmd_check_prettier () {
 
     cd_root
-    has_cmd node || { (( ${CI:-0} )) && die "node is required for prettier" 2 || { log "skip: node not installed"; return 0; }; }
+    has_cmd node || { is_ci && die "node is required for prettier" 2; log "skip: node not installed"; return 0; }
+    has_cmd npx  || { is_ci && die "npx is required for prettier" 2; log "skip: npx not installed"; return 0; }
 
     run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --check \
         ".github/**/*.{yml,yaml}" \
@@ -1205,7 +1304,8 @@ cmd_check_prettier () {
 cmd_fix_prettier () {
 
     cd_root
-    has_cmd node || { (( ${CI:-0} )) && die "node is required for prettier" 2 || { log "skip: node not installed"; return 0; }; }
+    has_cmd node || { is_ci && die "node is required for prettier" 2; log "skip: node not installed"; return 0; }
+    has_cmd npx  || { is_ci && die "npx is required for prettier" 2; log "skip: npx not installed"; return 0; }
 
     run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --write \
         ".github/**/*.{yml,yaml}" \
@@ -1217,12 +1317,14 @@ cmd_fix_prettier () {
 cmd_check_taplo () {
 
     cd_root
+    need_cmd taplo
     run taplo fmt --check "$@"
 
 }
 cmd_fix_taplo () {
 
     cd_root
+    need_cmd taplo
     run taplo fmt "$@"
 
 }
@@ -1238,7 +1340,7 @@ cmd_fix_audit () {
 
     cd_root
     need_cmd cargo
-    has_cmd cargo-audit || die "Error: cargo-audit not found. Install: cargo install cargo-audit --locked --features=fix" 2
+    has_cmd cargo-audit || die "Error: cargo-audit not found. Install: cargo install cargo-audit --features=fix" 2
     run cargo audit fix "$@"
 
 }
@@ -1334,11 +1436,11 @@ cmd_doctor () {
         [[ -n "${msrv}" ]] && log "MSRV: ${msrv}"
 
         local pkgs=""
-        pkgs="$(cargo metadata --locked --no-deps --format-version 1 2>/dev/null | jq -r '.packages | length' 2>/dev/null || true)"
+        pkgs="$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages | length' 2>/dev/null || true)"
         [[ -n "${pkgs}" ]] && log "Workspace packages: ${pkgs}"
 
         local members=""
-        members="$(cargo metadata --locked --no-deps --format-version 1 2>/dev/null | jq -r '.workspace_members | length' 2>/dev/null || true)"
+        members="$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.workspace_members | length' 2>/dev/null || true)"
         [[ -n "${members}" ]] && log "Workspace members: ${members}"
     else
         log ""
@@ -1631,6 +1733,151 @@ cmd_meta () {
     run cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
 
 }
+cmd_get_version () {
+
+    cd_root
+    need_cmd cargo
+    need_cmd jq
+
+    local name="${1:-}"
+    local meta=""
+
+    meta="$(cargo metadata --no-deps --format-version 1)" || die "Error: failed to read cargo metadata." 2
+
+    if [[ -z "${name}" ]]; then
+
+        local ws_root="" root_manifest=""
+        ws_root="$(jq -r '.workspace_root' <<<"${meta}")"
+        root_manifest="${ws_root}/Cargo.toml"
+
+        local v=""
+        v="$(jq -r --arg m "${root_manifest}" '
+            .packages[] | select(.manifest_path == $m) | .version
+        ' <<<"${meta}" 2>/dev/null || true)"
+
+        if [[ -z "${v}" || "${v}" == "null" ]]; then
+
+            local id=""
+            id="$(jq -r '.workspace_members[0]' <<<"${meta}")"
+
+            v="$(jq -r --arg id "${id}" '
+                .packages[] | select(.id == $id) | .version
+            ' <<<"${meta}")"
+
+        fi
+
+        [[ -n "${v}" && "${v}" != "null" ]] || die "Error: workspace version not found." 2
+
+        printf '%s\n' "${v}"
+        return 0
+
+    fi
+
+    local v=""
+    v="$(jq -r --arg n "${name}" '
+        .packages[] | select(.name == $n) | .version
+    ' <<<"${meta}" 2>/dev/null | head -n 1)"
+
+    [[ -n "${v}" && "${v}" != "null" ]] || die "Error: package ${name} not found." 2
+
+    printf '%s\n' "${v}"
+
+}
+cmd_is_publishable () {
+
+    need_cmd grep
+
+    local name="${1:-}"
+    [[ -n "${name}" ]] || die "Error: package name is required." 2
+
+    only_publish_pkgs \
+        | tr '[:upper:]' '[:lower:]' \
+        | grep -Fxq -- "$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]')" \
+        && { echo "yes"; return 0; }
+
+    echo "no"
+
+}
+cmd_is_published () {
+
+    cd_root
+    need_cmd curl
+    need_cmd grep
+
+    local name="${1:-}"
+    [[ -n "${name}" ]] || die "Error: crate name is required." 2
+    [[ "$(cmd_is_publishable "${name}")" == "yes" ]] || die "Error: package ${name} is not publishable." 2
+
+    local version=""
+    version="$(cmd_get_version "${name}")"
+
+    local name_lc="${name,,}"
+    local n="${#name_lc}"
+    local path=""
+
+    if (( n == 1 )); then path="1/${name_lc}"
+    elif (( n == 2 )); then path="2/${name_lc}"
+    elif (( n == 3 )); then path="3/${name_lc:0:1}/${name_lc}"
+    else path="${name_lc:0:2}/${name_lc:2:2}/${name_lc}"; fi
+
+    local tmp=""
+    tmp="$(mktemp)"
+
+    local code=""
+    code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
+
+    if [[ "${code}" == "404" ]]; then
+        rm -f "${tmp}"
+        echo "no"
+        return 0
+    fi
+    if [[ "${code}" != "200" ]]; then
+        rm -f "${tmp}"
+        die "Error: crates.io index request failed for ${name} (HTTP ${code})." 2
+    fi
+
+    if grep -q "\"vers\":\"${version}\"" "${tmp}"; then
+        rm -f "${tmp}"
+        echo "yes"
+        return 0
+    fi
+
+    rm -f "${tmp}"
+    echo "no"
+
+}
+cmd_can_publish () {
+
+    cd_root
+
+    local name="${1:-}"
+
+    if [[ -n "${name}" ]]; then
+
+        [[ "$(cmd_is_published "${name}")" == "yes" ]] && { echo "no"; return 0; }
+
+        echo "yes"
+        return 0
+
+    fi
+
+    local p=""
+    local -a pkgs=()
+
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        pkgs+=( "${line}" )
+    done < <(only_publish_pkgs)
+
+    [[ ${#pkgs[@]} -gt 0 ]] || { echo "no"; return 0; }
+
+    for p in "${pkgs[@]}"; do
+        [[ "$(cmd_is_published "${p}")" == "yes" ]] && { echo "no"; return 0; }
+    done
+
+    echo "yes"
+
+}
 cmd_publish () {
 
     cd_root
@@ -1732,8 +1979,8 @@ cmd_publish () {
     fi
 
     (( dry_run )) && cargo_args+=( --dry-run )
-
     local i=0
+
     while [[ $i -lt ${#excludes[@]} ]]; do
         cargo_args+=( --exclude "${excludes[$i]}" )
         i=$(( i + 1 ))
@@ -1776,17 +2023,22 @@ cmd_publish () {
         ' RETURN
 
     fi
+
     if [[ ${#packages[@]} -gt 0 ]]; then
 
+        for p in "${packages[@]}"; do
+            [[ "$(cmd_can_publish "${p}")" == "yes" ]] || die "Error: ${p} already published" 2
+        done
         for p in "${packages[@]}"; do
             run cargo publish --package "${p}" "${cargo_args[@]}" "$@"
         done
 
-        return 0
+    else
+
+        [[ "$(cmd_can_publish)" == "yes" ]] || die "Error: there is one/many packages already published" 2
+        run cargo publish --workspace "${cargo_args[@]}" "$@"
 
     fi
-
-    run cargo publish --workspace "${cargo_args[@]}" "$@"
 
 }
 cmd_yank () {
@@ -1943,7 +2195,7 @@ cmd_ensure () {
 
     cd_root
 
-    log "Installing OS Tools"
+    printf "\n💥 Ensure OS Tools ... \n\n"
 
     ensure_pkg --no-update "$@" jq perl grep curl clang llvm-dev libclang-dev hunspell awk tail sed sort head wc xargs find git
 
@@ -1953,13 +2205,13 @@ cmd_ensure () {
     (( ! rust )) && ! has_cmd cargo && ensure_rust
     (( ! node )) && ! has_cmd node && ensure_node
 
-    log "Installing rustup Tools"
+    printf "\n💥 Ensure rustup Tools ... \n\n"
 
     ensure_component rustfmt
     ensure_component clippy
     ensure_component llvm-tools-preview
 
-    log "Installing Cargo Tools"
+    printf "\n💥 Ensure Cargo Tools ... \n\n"
 
     ensure_crate cargo-deny            cargo-deny
     ensure_crate cargo-audit           cargo-audit --features fix
@@ -1969,30 +2221,7 @@ cmd_ensure () {
     ensure_crate cargo-nextest         cargo-nextest
     ensure_crate cargo-hack            cargo-hack
     ensure_crate cargo-ci-cache-clean  cargo-ci-cache-clean
-
-}
-cmd_ci_msrv () {
-
-    cmd_ensure --rust
-    need_cmd rustup
-
-    local tc=""
-    tc="$(cmd_msrv 2>/dev/null || true)"
-    tc="${tc#v}"
-
-    [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
-    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid msrv value: ${tc}" 2
-
-    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
-
-    printf "\n💥 Checking MSRV (%s) ...\n\n" "${tc}"
-    run env RUSTFLAGS="" cargo +"${tc}" check --locked --workspace --all-targets --all-features
-
-    printf "\n💥 Testing MSRV (%s) ...\n\n" "${tc}"
-    run env RUSTFLAGS="" cargo +"${tc}" test --locked --workspace --all-targets --all-features --no-run
-
-    cmd_clean_cache
-    printf "\n✅ CI MSRV Succeeded.\n\n"
+    ensure_crate cargo-semver-checks   cargo-semver-checks
 
 }
 cmd_ci_fast () {
@@ -2000,13 +2229,13 @@ cmd_ci_fast () {
     cmd_ensure
 
     printf "\n💥 Checking ...\n\n"
-    "${SELF}" check
+    cmd_check
 
     printf "\n💥 Testing ...\n\n"
-    "${SELF}" test
+    cmd_test
 
     printf "\n💥 Clippy ...\n\n"
-    "${SELF}" clippy
+    cmd_clippy
 
     cmd_clean_cache
     printf "\n✅ CI FAST Succeeded.\n\n"
@@ -2017,19 +2246,19 @@ cmd_ci_fmt () {
     cmd_ensure
 
     printf "\n💥 Check Audit ...\n\n"
-    "${SELF}" check-audit
+    cmd_check_audit
 
     printf "\n💥 Check Format ...\n\n"
-    "${SELF}" check-fmt
+    cmd_check_fmt
 
     printf "\n💥 Check Taplo ...\n\n"
-    "${SELF}" check-taplo
+    cmd_check_taplo
 
     printf "\n💥 Check Prettier ...\n\n"
-    "${SELF}" check-prettier
+    cmd_check_prettier
 
     printf "\n💥 Check Spellcheck ...\n\n"
-    "${SELF}" spellcheck
+    cmd_spellcheck
 
     cmd_clean_cache
     printf "\n✅ CI Format Succeeded.\n\n"
@@ -2040,13 +2269,27 @@ cmd_ci_doc () {
     cmd_ensure
 
     printf "\n💥 Check Doc ...\n\n"
-    "${SELF}" check-doc
+    cmd_check_doc
 
     printf "\n💥 Test Doc ...\n\n"
-    "${SELF}" test-doc
+    cmd_test_doc
 
     cmd_clean_cache
     printf "\n✅ CI Doc Succeeded.\n\n"
+
+}
+cmd_ci_msrv () {
+
+    cmd_ensure
+
+    printf "\n💥 Check Msrv ...\n\n"
+    cmd_msrv_check
+
+    printf "\n💥 Test Msrv ...\n\n"
+    cmd_msrv_test
+
+    cmd_clean_cache
+    printf "\n✅ CI MSRV Succeeded.\n\n"
 
 }
 cmd_ci_hack () {
@@ -2054,10 +2297,21 @@ cmd_ci_hack () {
     cmd_ensure
 
     printf "\n💥 Hacking ...\n\n"
-    "${SELF}" hack
+    cmd_hack "$@"
 
     cmd_clean_cache
-    printf "\n✅ CI Hacking Succeeded.\n\n"
+    printf "\n✅ CI HACKING Succeeded.\n\n"
+
+}
+cmd_ci_semver () {
+
+    cmd_ensure
+
+    printf "\n💥 Semver ...\n\n"
+    cmd_semver "$@"
+
+    cmd_clean_cache
+    printf "\n✅ CI SEMVER Succeeded.\n\n"
 
 }
 cmd_ci_coverage () {
@@ -2065,7 +2319,7 @@ cmd_ci_coverage () {
     cmd_ensure
 
     printf "\n💥 Coverage ...\n\n"
-    "${SELF}" coverage "$@"
+    cmd_coverage "$@"
 
     cmd_clean_cache
     printf "\n✅ CI Coverage Succeeded.\n\n"
@@ -2076,47 +2330,61 @@ cmd_ci_publish () {
     cmd_ensure
 
     printf "\n💥 Publishing ...\n\n"
-    "${SELF}" publish "$@"
+    # cmd_publish "$@"
 
     cmd_clean_cache
     printf "\n✅ CI Publish Succeeded.\n\n"
 
 }
-cmd_ci () {
+cmd_ci_local () {
 
     cmd_ensure --rust --node
 
     printf "\n💥 Checking ...\n\n"
-    "${SELF}" check
+    cmd_check
 
     printf "\n💥 Testing ...\n\n"
-    "${SELF}" test --all
+    cmd_test
 
     printf "\n💥 Clippy ...\n\n"
-    "${SELF}" clippy
+    cmd_clippy
 
     printf "\n💥 Check Audit ...\n\n"
-    "${SELF}" check-audit
-
-    printf "\n💥 Check Doc ...\n\n"
-    "${SELF}" check-doc
+    cmd_check_audit
 
     printf "\n💥 Check Format ...\n\n"
-    "${SELF}" check-fmt
+    cmd_check_fmt
 
     printf "\n💥 Check Taplo ...\n\n"
-    "${SELF}" check-taplo
+    cmd_check_taplo
 
     printf "\n💥 Check Prettier ...\n\n"
-    "${SELF}" check-prettier
+    cmd_check_prettier
 
     printf "\n💥 Check Spellcheck ...\n\n"
-    "${SELF}" spellcheck
+    cmd_spellcheck
+
+    printf "\n💥 Check Doc ...\n\n"
+    cmd_check_doc
+
+    printf "\n💥 Test Doc ...\n\n"
+    cmd_test_doc
+
+    printf "\n💥 Check Msrv ...\n\n"
+    cmd_msrv_check
+
+    printf "\n💥 Test Msrv ...\n\n"
+    cmd_msrv_test
+
+    printf "\n💥 Hacking ...\n\n"
+    cmd_hack
+
+    printf "\n💥 Semver ...\n\n"
+    cmd_semver
 
     printf "\n💥 Coverage ...\n\n"
-    "${SELF}" coverage "$@"
+    cmd_coverage
 
-    cmd_clean_cache
     printf "\n✅ CI Pipeline Succeeded.\n\n"
 
 }
