@@ -464,7 +464,6 @@ ensure_pkg () {
                     find|xargs)        pkg="findutils" ;;
                 esac
 
-                # LLVM / Clang mapping (bindgen / clang-sys / spellcheck)
                 case "${t}" in
                     llvm-dev|llvm|llvm-devel)
                         case "${mgr}" in
@@ -490,7 +489,6 @@ ensure_pkg () {
 
             else
 
-                # macOS: bindgen wants libclang, best source is brew llvm
                 case "${t}" in
                     clang|llvm-dev|llvm|libclang-dev|libclang)
                         pkg="llvm"
@@ -520,8 +518,7 @@ ensure_pkg () {
 
     local -a w_ids=()
     local -a c_pkgs=()
-    local need_git=0
-    local t=""
+    local need_git=0 t=""
 
     for t in "${tools[@]}"; do
 
@@ -535,12 +532,17 @@ ensure_pkg () {
             hunspell)
                 c_pkgs+=( "hunspell.portable" )
             ;;
-            *)
+            git)
                 need_git=1
+            ;;
+            *)
+                :
             ;;
         esac
 
     done
+
+    has_cmd git && need_git=0
 
     if (( need_git )); then
         w_ids+=( "Git.Git" )

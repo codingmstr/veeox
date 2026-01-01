@@ -2002,8 +2002,11 @@ cmd_publish () {
     fi
 
     local old_token="" old_token_set=0 xtrace=0
-    [[ -v CARGO_REGISTRY_TOKEN ]] && { old_token_set=1; old_token="${CARGO_REGISTRY_TOKEN}"; }
 
+    if [[ -n "${CARGO_REGISTRY_TOKEN+x}" ]]; then
+        old_token_set=1
+        old_token="${CARGO_REGISTRY_TOKEN}"
+    fi
     if [[ -n "${token}" ]]; then
 
         [[ $- == *x* ]] && { xtrace=1; set +x; }
