@@ -428,7 +428,13 @@ ensure_pkg () {
 
         if [[ "${os}" == "linux" ]]; then
 
-            mgr="$(detect_pkg_mgr)"
+            mgr="$(detect_pkg_mgr || true)"
+
+            [[ -n "${mgr}" ]] || {
+                has_cmd zypper && mgr="zypper"
+                has_cmd apk && mgr="apk"
+            }
+
             [[ -n "${mgr}" ]] || die "No supported package manager found (apt/dnf/yum/pacman/zypper/apk)." 2
 
         else
@@ -456,6 +462,41 @@ ensure_pkg () {
                     head|tail|wc|sort) pkg="coreutils" ;;
                     find|xargs)        pkg="findutils" ;;
                 esac
+
+                # LLVM / Clang mapping (bindgen / clang-sys / spellcheck)
+                case "${t}" in
+                    llvm-dev|llvm|llvm-devel)
+                        case "${mgr}" in
+                            apt)     pkg="llvm-dev" ;;
+                            dnf|yum) pkg="llvm-devel" ;;
+                            zypper)  pkg="llvm-devel" ;;
+                            pacman)  pkg="llvm" ;;
+                            apk)     pkg="llvm-dev" ;;
+                            *)       pkg="llvm" ;;
+                        esac
+                    ;;
+                    libclang-dev|libclang|libclang-devel)
+                        case "${mgr}" in
+                            apt)     pkg="libclang-dev" ;;
+                            dnf|yum) pkg="libclang-devel" ;;
+                            zypper)  pkg="libclang-devel" ;;
+                            pacman)  pkg="libclang" ;;
+                            apk)     pkg="clang-dev" ;;
+                            *)       pkg="libclang-dev" ;;
+                        esac
+                    ;;
+                esac
+
+            else
+
+                # macOS: bindgen wants libclang, best source is brew llvm
+                case "${t}" in
+                    clang|llvm-dev|llvm|libclang-dev|libclang)
+                        pkg="llvm"
+                    ;;
+                    gawk) pkg="gawk" ;;
+                esac
+
             fi
 
             pkgs+=( "${pkg}" )
@@ -510,18 +551,15 @@ ensure_pkg () {
         run install_pkg "winget" 0 "${w_ids[@]}"
         win_try_add_paths
     fi
-
     if has_cmd choco && (( ${#c_pkgs[@]} > 0 )); then
         run install_pkg "choco" 0 "${c_pkgs[@]}"
         win_try_add_paths
     fi
-
     if ! has_cmd winget && ! has_cmd choco; then
         log "Windows detected, but neither winget nor choco found."
         log "Install one of them, or install Git for Windows and retry."
         return 0
     fi
-
     if (( need_git )); then
         has_cmd git || log "Note: Git installed but not visible yet. Restart shell to refresh PATH."
     fi

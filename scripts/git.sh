@@ -693,6 +693,9 @@ cmd_push () {
             --key)          shift; key="${1:-}";       [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
             --token)        shift; token="${1:-}";     [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
             --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -b|--branch)    shift; branch="${1:-}";    [[ -n "${branch}" ]] || die "Missing branch" 2;                   shift ;;
+            -m|--message)   shift; msg="${1:-}";       [[ -n "${msg}" ]]    || die "Missing message" 2;                  shift ;;
+            -f|--force)     force=1; shift ;;
             -t|--tag|--release)
                 shift || true
                 if [[ -n "${1:-}" && "${1:-}" != -* ]]; then
@@ -707,10 +710,10 @@ cmd_push () {
                 [[ -n "${tag}" ]] || tag="auto"
                 shift || true
             ;;
-            -b|--branch)    shift; branch="${1:-}";    [[ -n "${branch}" ]] || die "Missing branch" 2;                   shift ;;
-            -m|--message)   shift; msg="${1:-}";       [[ -n "${msg}" ]]    || die "Missing message" 2;                  shift ;;
-            -f|--force)     force=1; shift ;;
-            -h|--help)      log "Usage: vx push [-t|--release <tag>] [-b <branch>] [-m <msg>] [-f] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
+            -h|--help)
+                log "Usage: vx push [-t|--release <tag>] [-b <branch>] [-m <msg>] [-f] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"
+                return 0
+            ;;
             --) shift || true; break ;;
             *) die "Unknown arg: $1" 2 ;;
         esac

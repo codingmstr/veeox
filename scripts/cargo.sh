@@ -1930,12 +1930,28 @@ cmd_yank () {
 
 cmd_ensure () {
 
+    local rust=0 node=0
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            --rust) rust=1; shift ;;
+            --node) node=1; shift ;;
+            --) shift; break ;;
+            *) break ;;
+        esac
+    done
+
     cd_root
 
     log "Installing OS Tools"
 
-    ensure_pkg "$@" jq perl grep curl hunspell awk tail sed sort head wc xargs find git
-    ensure_rust
+    ensure_pkg --no-update "$@" jq perl grep curl clang llvm-dev libclang-dev hunspell awk tail sed sort head wc xargs find git
+
+    (( rust )) && ensure_rust
+    (( node )) && ensure_node
+
+    (( ! rust )) && ! has_cmd cargo && ensure_rust
+    (( ! node )) && ! has_cmd node && ensure_node
 
     log "Installing rustup Tools"
 
@@ -1957,21 +1973,23 @@ cmd_ensure () {
 }
 cmd_ci_msrv () {
 
-    cmd_ensure
+    cmd_ensure --rust
+    need_cmd rustup
 
-    local tc="$(cmd_msrv || true)"
+    local tc=""
+    tc="$(cmd_msrv 2>/dev/null || true)"
     tc="${tc#v}"
 
     [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
-    [[ -n "${tc}" ]] || die "Invalid msrv value" 2
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid msrv value: ${tc}" 2
 
     rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
 
     printf "\n💥 Checking MSRV (%s) ...\n\n" "${tc}"
-    run cargo +"${tc}" check --locked --workspace --all-targets --all-features
+    run env RUSTFLAGS="" cargo +"${tc}" check --locked --workspace --all-targets --all-features
 
     printf "\n💥 Testing MSRV (%s) ...\n\n" "${tc}"
-    run cargo +"${tc}" test --locked --workspace --all-targets --all-features --no-run
+    run env RUSTFLAGS="" cargo +"${tc}" test --locked --workspace --all-targets --all-features --no-run
 
     cmd_clean_cache
     printf "\n✅ CI MSRV Succeeded.\n\n"
@@ -2066,7 +2084,7 @@ cmd_ci_publish () {
 }
 cmd_ci () {
 
-    cmd_ensure
+    cmd_ensure --rust --node
 
     printf "\n💥 Checking ...\n\n"
     "${SELF}" check
