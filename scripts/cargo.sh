@@ -3,7 +3,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base.sh"
 
 ensure_rust () {
 
-    local tc="${1:-stable}"
+    local tc="${RUST_STABLE:-stable}"
     local uname_s=""
 
     export PATH="${HOME}/.cargo/bin:${PATH}"
