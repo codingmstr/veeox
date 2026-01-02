@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: ['main', 'veeox-*.x']
+    branches: ['main']
     tags: ['v*']
 
   pull_request:
-    branches: ['main', 'veeox-*.x']
+    branches: ['main']
 
   workflow_dispatch:
 

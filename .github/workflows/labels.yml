@@ -1,19 +1,20 @@
-name: labels
+name: Labels
 
 on:
   push:
-    branches: ['main']
-
+    branches: [main]
     paths:
-      - '.github/labels.yml'
-      - '.github/workflows/labels.yml'
+      - .github/labels.yml
 
   pull_request:
     paths:
-      - '.github/labels.yml'
-      - '.github/workflows/labels.yml'
+      - .github/labels.yml
 
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -25,11 +26,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      - name: Sync labels
+      - name: labels
         uses: crazy-max/ghaction-github-labeler@v5.3.0
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           yaml-file: .github/labels.yml
           dry-run: ${{ github.event_name == 'pull_request' }}

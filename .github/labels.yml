@@ -1,6 +1,8 @@
-- name: 'app:tests'
+# Basics
+
+- name: 'tests'
   color: '5319E7'
-  description: 'Changes in tests app (root)'
+  description: 'Changes in tests'
 
 - name: 'benchmarks'
   color: 'FBCA04'
@@ -10,17 +12,21 @@
   color: 'D4C5F9'
   description: 'Examples updates'
 
+- name: 'fuzz'
+  color: '6F42C1'
+  description: 'Fuzz updates'
+
 - name: 'docs'
   color: '0075CA'
   description: 'Documentation updates'
 
 - name: 'ci'
   color: '1D76DB'
-  description: 'CI / GitHub Actions changes'
+  description: 'CI / GitHub automation changes'
 
 - name: 'cargo'
   color: 'C2E0C6'
-  description: 'Cargo.toml / Cargo.lock changes'
+  description: 'Cargo manifests / lockfiles changes'
 
 - name: 'security'
   color: 'D73A4A'
@@ -28,11 +34,13 @@
 
 - name: 'release'
   color: 'B60205'
-  description: 'Changelog / release related'
+  description: 'Changelog / release tracking'
 
 - name: 'tooling'
   color: 'BFDADC'
-  description: 'Dev tooling config (deny/typos/editorconfig)'
+  description: 'Dev tooling, scripts, and repo configs'
+
+# Crates
 
 - name: 'crates:api'
   color: '0E8A16'
