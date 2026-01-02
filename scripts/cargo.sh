@@ -4,7 +4,6 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base.sh"
 ensure_rust () {
 
     local tc="${1:-stable}"
-    local ensure_nightly="${2:-1}"
     local uname_s=""
 
     export PATH="${HOME}/.cargo/bin:${PATH}"
@@ -19,7 +18,6 @@ ensure_rust () {
             run rustup default "${tc}"
         }
 
-        (( ensure_nightly )) && run rustup toolchain install nightly --profile minimal
         return 0
 
     }
@@ -52,8 +50,6 @@ ensure_rust () {
 
     run rustup toolchain install "${tc}" --profile minimal
     is_ci && run rustup default "${tc}"
-
-    (( ensure_nightly )) && run rustup toolchain install nightly --profile minimal
 
 }
 ensure_node () {
@@ -1119,6 +1115,12 @@ cmd_msrv () {
 }
 cmd_msrv_check () {
 
+    cd_root
+    need_cmd cargo
+    need_cmd rustup
+    need_cmd awk
+    need_cmd grep
+
     local tc="$(cmd_msrv 2>/dev/null || true)"
     tc="${tc#v}"
 
@@ -1131,11 +1133,47 @@ cmd_msrv_check () {
 }
 cmd_msrv_test () {
 
+    cd_root
+    need_cmd cargo
+    need_cmd rustup
+    need_cmd awk
+    need_cmd grep
+
     local tc="$(cmd_msrv 2>/dev/null || true)"
     tc="${tc#v}"
 
     [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
     [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid msrv value: ${tc}" 2
+
+    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
+    run env RUSTFLAGS="" cargo +"${tc}" test --workspace --all-targets --all-features --no-run
+
+}
+cmd_nightly_check () {
+
+    cd_root
+    need_cmd cargo
+    need_cmd rustup
+    need_cmd awk
+    need_cmd grep
+
+    local tc="${RUST_NIGHTLY:-nightly}"
+    [[ -n "${tc}" ]] || die "Invalid nightly toolchain: empty" 2
+
+    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
+    run env RUSTFLAGS="" cargo +"${tc}" check --workspace --all-targets --all-features
+
+}
+cmd_nightly_test () {
+
+    cd_root
+    need_cmd cargo
+    need_cmd rustup
+    need_cmd awk
+    need_cmd grep
+
+    local tc="${RUST_NIGHTLY:-nightly}"
+    [[ -n "${tc}" ]] || die "Invalid nightly toolchain: empty" 2
 
     rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "${tc}" || run rustup toolchain install "${tc}" --profile minimal
     run env RUSTFLAGS="" cargo +"${tc}" test --workspace --all-targets --all-features --no-run
@@ -1434,7 +1472,6 @@ cmd_fix_audit () {
     run cargo audit fix "$@"
 
 }
-
 cmd_doctor () {
 
     cd_root
@@ -2339,9 +2376,6 @@ cmd_ensure () {
     (( rust )) && ensure_rust
     (( node )) && ensure_node
 
-    (( ! rust )) && ! has_cmd cargo && ensure_rust
-    (( ! node )) && ! has_cmd node && ensure_node
-
     printf "\n💥 Ensure rustup Tools ... \n\n"
 
     ensure_component rustfmt
@@ -2367,13 +2401,13 @@ cmd_ci_fast () {
     cmd_ensure
 
     printf "\n💥 Checking ...\n\n"
-    cmd_check
+    cmd_check "$@"
 
     printf "\n💥 Testing ...\n\n"
-    cmd_test
+    cmd_test "$@"
 
     printf "\n💥 Clippy ...\n\n"
-    cmd_clippy
+    cmd_clippy "$@"
 
     cmd_clean_cache
     printf "\n✅ CI FAST Succeeded.\n\n"
@@ -2384,19 +2418,19 @@ cmd_ci_fmt () {
     cmd_ensure
 
     printf "\n💥 Check Audit ...\n\n"
-    cmd_check_audit
+    cmd_check_audit "$@"
 
     printf "\n💥 Check Format ...\n\n"
-    cmd_check_fmt
+    cmd_check_fmt "$@"
 
     printf "\n💥 Check Taplo ...\n\n"
-    cmd_check_taplo
+    cmd_check_taplo "$@"
 
     printf "\n💥 Check Prettier ...\n\n"
-    cmd_check_prettier
+    cmd_check_prettier "$@"
 
     printf "\n💥 Check Spellcheck ...\n\n"
-    cmd_spellcheck
+    cmd_spellcheck "$@"
 
     cmd_clean_cache
     printf "\n✅ CI Format Succeeded.\n\n"
@@ -2407,10 +2441,10 @@ cmd_ci_doc () {
     cmd_ensure
 
     printf "\n💥 Check Doc ...\n\n"
-    cmd_check_doc
+    cmd_check_doc "$@"
 
     printf "\n💥 Test Doc ...\n\n"
-    cmd_test_doc
+    cmd_test_doc "$@"
 
     cmd_clean_cache
     printf "\n✅ CI Doc Succeeded.\n\n"
@@ -2421,13 +2455,27 @@ cmd_ci_msrv () {
     cmd_ensure
 
     printf "\n💥 Check Msrv ...\n\n"
-    cmd_msrv_check
+    cmd_msrv_check "$@"
 
     printf "\n💥 Test Msrv ...\n\n"
-    cmd_msrv_test
+    cmd_msrv_test "$@"
 
     cmd_clean_cache
     printf "\n✅ CI MSRV Succeeded.\n\n"
+
+}
+cmd_ci_nightly () {
+
+    cmd_ensure
+
+    printf "\n💥 Check Nightly ...\n\n"
+    cmd_nightly_check "$@"
+
+    printf "\n💥 Test Nightly ...\n\n"
+    cmd_nightly_test "$@"
+
+    cmd_clean_cache
+    printf "\n✅ CI NIGHTLY Succeeded.\n\n"
 
 }
 cmd_ci_hack () {
@@ -2524,6 +2572,12 @@ cmd_ci_local () {
 
     printf "\n💥 Test Msrv ...\n\n"
     cmd_msrv_test
+
+    printf "\n💥 Check Nightly ...\n\n"
+    cmd_nightly_check
+
+    printf "\n💥 Test Nightly ...\n\n"
+    cmd_nightly_test
 
     printf "\n💥 Hacking ...\n\n"
     cmd_hack
