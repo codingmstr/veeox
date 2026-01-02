@@ -1422,7 +1422,7 @@ cmd_check_audit () {
 
     cd_root
     need_cmd cargo
-    has_cmd cargo-deny || die "Error: cargo-deny not found. Install: cargo install cargo-deny" 2
+    need_cmd cargo-deny
     run cargo deny check advisories bans licenses sources "$@"
 
 }
@@ -1430,7 +1430,7 @@ cmd_fix_audit () {
 
     cd_root
     need_cmd cargo
-    has_cmd cargo-audit || die "Error: cargo-audit not found. Install: cargo install cargo-audit --features=fix" 2
+    need_cmd cargo-audit
     run cargo audit fix "$@"
 
 }
@@ -1629,6 +1629,7 @@ cmd_doctor () {
         has_cmd cargo-llvm-cov && { printf '  ✅ %-18s %s\n' "llvm-cov:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "llvm-cov:" "missing"; warn=$(( warn + 1 )); }
         has_cmd cargo-deny && { printf '  ✅ %-18s %s\n' "cargo-deny:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-deny:" "missing"; warn=$(( warn + 1 )); }
         has_cmd cargo-audit && { printf '  ✅ %-18s %s\n' "cargo-audit:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-audit:" "missing"; warn=$(( warn + 1 )); }
+        has_cmd cargo-semver-checks && { printf '  ✅ %-18s %s\n' "cargo-semver:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-semver:" "missing"; warn=$(( warn + 1 )); }
         has_cmd cargo-hack && { printf '  ✅ %-18s %s\n' "cargo-hack:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-hack:" "missing"; warn=$(( warn + 1 )); }
         has_cmd cargo-fuzz && { printf '  ✅ %-18s %s\n' "cargo-fuzz:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-fuzz:" "missing"; warn=$(( warn + 1 )); }
 
