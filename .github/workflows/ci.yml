@@ -47,8 +47,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-FAST
         run: bash ./scripts/run.sh ci-fast
@@ -74,8 +72,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-FMT
         run: bash ./scripts/run.sh ci-fmt
@@ -96,8 +92,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-DOC
         run: bash ./scripts/run.sh ci-doc
@@ -118,8 +112,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-HACK
         run: bash ./scripts/run.sh ci-hack
@@ -145,8 +137,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-FAST
         run: bash ./scripts/run.sh ci-fast
@@ -167,8 +157,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: msrv
 
       - name: Run CI-MSRV
         run: bash ./scripts/run.sh ci-msrv
@@ -190,8 +178,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: nightly
 
       - name: Run CI-NIGHTLY
         run: bash ./scripts/run.sh ci-nightly
@@ -212,8 +198,6 @@ jobs:
 
       - name: Setup Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: nightly
 
       - name: CI FUZZ
         run: bash ./scripts/run.sh ci-fuzz --timeout 10 --len 5000
@@ -234,8 +218,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-SEMVER
         run: bash ./scripts/run.sh ci-semver
@@ -256,8 +238,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Coverage
         env:
@@ -286,8 +266,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
 
       - name: Run CI-Publish
         env:

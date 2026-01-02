@@ -6,30 +6,37 @@
     source of truth.
 -   Added a polished PR template to standardize reviews and reduce review latency.
 
+## 🏷️ Type
+
+-   [ ] bug
+-   [ ] enhancement
+-   [ ] refactor
+-   [ ] chore
+
 ## 🧭 Scope
 
--   [x] ci
--   [x] tests
--   [x] benches
--   [x] examples
--   [x] fuzz
--   [x] docs
--   [x] cargo
--   [x] security
--   [x] release
--   [x] tooling
--   [x] crates
--   [x] crates:\*\*\*
+-   [ ] ci
+-   [ ] tests
+-   [ ] benches
+-   [ ] examples
+-   [ ] fuzz
+-   [ ] docs
+-   [ ] cargo
+-   [ ] security
+-   [ ] release
+-   [ ] tooling
+-   [ ] crates
+-   [ ] crates:\*\*\*
 
 ## ✅ Checklist
 
--   [x] `vx doctor` is clean
--   [x] `vx ci-local` passed
--   [x] Tests added/updated (where applicable) — N/A (workflow + templates only)
--   [x] Docs/comments added/updated (where applicable) — PR template added
--   [x] Examples/benches updated (where applicable) — N/A
--   [x] Changelog updated (where applicable) — N/A
--   [x] No breaking changes (or clearly documented below)
+-   [ ] `vx doctor` is clean
+-   [ ] `vx ci-local` passed
+-   [ ] Tests added/updated (where applicable) — N/A (workflow + templates only)
+-   [ ] Docs/comments added/updated (where applicable) — PR template added
+-   [ ] Examples/benches updated (where applicable) — N/A
+-   [ ] Changelog updated (where applicable) — N/A
+-   [ ] No breaking changes (or clearly documented below)
 
 ## 💥 Notes / Links
 

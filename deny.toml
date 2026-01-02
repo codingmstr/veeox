@@ -1,37 +1,37 @@
 [graph]
-targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
-exclude = []
-all-features = true
-
-[licenses]
-confidence-threshold = 0.93
-private = { ignore = true }
-allow = [
-    "MIT",
-    "Apache-2.0",
-    "NCSA",
-    # "BSD-2-Clause",
-    # "BSD-3-Clause",
-    # "ISC",
-    # "Zlib",
-    # "Unicode-DFS-2016",
-    # "CC0-1.0",
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
 ]
+all-features = true
+exclude = []
 
-exceptions = []
-
-[[licenses.clarify]]
-crate = "webpki"
-expression = "ISC"
-license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+maximum-db-staleness = "P30D"
+ignore = []
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "deny"
 wildcards = "deny"
 highlight = "all"
-deny = []
+deny = [
+    { crate = "openssl", use-instead = "rustls" },
+    { crate = "openssl-sys", use-instead = "rustls" },
+    { crate = "native-tls", use-instead = "rustls" },
+    { crate = "git2", reason = "Prefer gix to avoid libgit2/openssl baggage", use-instead = "gix" },
+    "libssh2-sys",
+]
+skip-tree = [
+    { crate = "windows-sys", reason = "Foundational crate; version churn is expected across the ecosystem" },
+]
+allow = []
 skip = []
-skip-tree = []
 
 [bans.build]
 executables = "deny"
@@ -41,8 +41,32 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
+required-git-spec = "rev"
+unused-allowed-source = "deny"
 
-[advisories]
-yanked = "deny"
-unmaintained = "workspace"
-ignore = []
+[licenses]
+include-dev = true
+unused-allowed-license = "warn"
+confidence-threshold = 0.95
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "NCSA",
+    "Unicode-3.0",
+    # "BSD-3-Clause",
+    # "ISC",
+    # "Zlib",
+    # "0BSD",
+    # "CC0-1.0",
+    # "Unicode-DFS-2016",
+    # "OpenSSL",
+]
+
+[licenses.private]
+ignore = true
+
+# [[licenses.clarify]]
+# crate = "crate-name"
+# expression = "MIT OR Apache-2.0"
+# license-files = [{ path = "LICENSE", hash = 0xxxxxx }]

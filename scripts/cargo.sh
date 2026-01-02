@@ -368,8 +368,11 @@ cargo_help () {
     example          Run an example target by name, forwarding extra args after --
     clean            Remove build artifacts
 
-    msrv             Validate that your Rust compiler satisfies the workspace MSRV
-    doctor           Show tool versions and optional tooling availability
+    msrv             Get the latest minimum support rust version in all crates, return (env.RUST_MSRV if exists)
+    msrv-check       Validate that your Rust compiler satisfies the workspace checks msrv
+    msrv-test        Validate that your Rust compiler satisfies the workspace tests msrv
+    nightly-check    Validate that your Rust compiler satisfies the workspace checks nightly version
+    nightly-test     Validate that your Rust compiler satisfies the workspace tests nightly version
 
     fix-ws           Remove trailing whitespace in git-tracked files
     check-fmt        Verify formatting (no changes)
@@ -378,7 +381,6 @@ cargo_help () {
     clippy           Run lints on crates/ only (strict)
     clippy-strict    Run lints on the full workspace (very strict)
 
-    deny             Supply-chain / policy checks (advisories, licenses, bans, sources)
     spellcheck       Spellcheck docs and text files
     coverage         Generate coverage reports (lcov + codecov json)
 
@@ -395,6 +397,7 @@ cargo_help () {
     test-doc         Run documentation tests (doctests)
     open-doc         Build docs then open them in your browser
 
+    doctor           Show tool versions and optional tooling availability
     meta             Show workspace metadata (members, names, packages, publishable set)
     publish          Publish crates in dependency order (workspace publish)
     yank             Yank a published version (or undo yank)
@@ -717,15 +720,6 @@ cmd_clippy_strict () {
     need_cmd cargo
     mapfile -t flags < <(clippy_flags)
     run cargo clippy --workspace --all-targets --all-features "$@" -- "${flags[@]}"
-
-}
-cmd_deny () {
-
-    cd_root
-    need_cmd cargo
-    need_cmd cargo-deny
-
-    run cargo deny check "$@"
 
 }
 cmd_test () {
@@ -1469,6 +1463,13 @@ cmd_fix_audit () {
     cd_root
     need_cmd cargo
     need_cmd cargo-audit
+
+    local adv="${HOME}/.cargo/advisory-db"
+
+    if [[ -d "${adv}" ]] && [[ ! -d "${adv}/.git" ]]; then
+        mv "${adv}" "${adv}.broken.$(date +%s)" || true
+    fi
+
     run cargo audit fix "$@"
 
 }

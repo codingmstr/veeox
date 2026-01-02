@@ -36,8 +36,6 @@ jobs:
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: nightly
 
       - name: Run CI-FUZZ
         run: bash ./scripts/run.sh ci-fuzz --timeout 3600 --len 10000

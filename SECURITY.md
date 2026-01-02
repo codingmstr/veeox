@@ -1,23 +1,32 @@
-# Report a security issue
+# Security Policy
 
-The veeox project team welcomes security reports and is committed to giving prompt attention to
-security issues.
-
-Security issues should be reported privately. Please **do not** report them via public GitHub
-Issues.
+The Veeox project team welcomes security reports and will prioritize fixes for confirmed issues.
+Please report security issues **privately** and **do not** open public GitHub Issues.
 
 ## How to report
 
-Preferred: use GitHub's **Private Vulnerability Reporting / Security Advisories** on the repository
-(if enabled). Otherwise, contact the project maintainer(s) privately using the contact method on
-their GitHub profile.
+Preferred: use GitHub **Security Advisories / Private Vulnerability Reporting** for this repository.
 
-## Vulnerability coordination
+If advisories are not available, contact the maintainer(s) privately via the contact method on their
+GitHub profile.
 
-Remediation of security vulnerabilities is prioritized by the project maintainers. When applicable,
-coordination will be done using GitHub Security Advisories.
+## What to include
 
-## Security advisories
+To help us triage quickly, include:
 
-When a security issue is confirmed and fixed, we aim for a transparent disclosure process.
-Announcements may be made via GitHub Releases and, when appropriate, the RustSec advisory database.
+-   Affected crate(s) and version(s)
+-   Impact and severity (what can an attacker do?)
+-   Minimal reproduction / PoC (if possible)
+-   Steps to reproduce + environment details
+-   Any relevant logs or error output
+
+**Do not include secrets** (tokens, private keys, credentials) in reports or logs.
+
+## Coordinated disclosure
+
+We prefer coordinated disclosure. Please avoid public disclosure until a fix is available.
+
+## Advisories
+
+When a security issue is confirmed and fixed, we aim for transparent disclosure via GitHub Releases
+and, when appropriate, RustSec.
