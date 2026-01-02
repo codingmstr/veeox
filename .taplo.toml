@@ -1,5 +1,5 @@
 include = ["**/*.toml"]
-exclude = ["target/*", "target/**"]
+exclude = ["**/target/**", ".git/**"]
 
 [formatting]
 indent_string = "    "
@@ -8,6 +8,11 @@ trailing_newline = true
 align_comments = false
 allowed_blank_lines = 1
 crlf = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = ["package"]
+formatting.reorder_keys = false
 
 [[rule]]
 include = ["**/Cargo.toml"]

@@ -363,6 +363,7 @@ cargo_help () {
     check            Fast compile checks for all crates and targets (no binaries produced)
     test             Run the full test suite (workspace-wide or a single crate)
     hack             Run feature matrix checks using cargo-hack (each-feature or powerset)
+    fuzz             Run fuzz targets to find crashes/panics (uses cargo-fuzz)
     semver           Run cargo semver checks using cargo-semver-checks
     bench            Run benchmarks (workspace-wide or a single crate)
     example          Run an example target by name, forwarding extra args after --
@@ -406,11 +407,14 @@ cargo_help () {
     ci-fmt           CI format pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)
     ci-doc           CI docs pipeline (check-doc + test-doc)
     ci-hack          CI feature-matrix pipeline (cargo-hack)
+    ci-fuzz          CI fuzz pipeline (runs targets with timeout & corpus)
     ci-coverage      CI coverage pipeline (llvm-cov)
     ci-msrv          CI MSRV pipeline (check + test --no-run on MSRV toolchain)
+    ci-nightly       CI NIGHTLY pipeline (check + test --no-run on NIGHTLY toolchain)
     ci-semver        CI SEMVER pipeline (check semver)
     ci-publish       CI publish gate then publish (full checks + publish)
-    ci-local         Run a local CI full workflow ci pipline (checks + tests + fmts + hack + doc + semver + coverage)
+
+    ci-local         Run a local CI full workflow ci pipline ( full ci-xxx features )
 OUT
 }
 
