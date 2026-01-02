@@ -4,6 +4,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base.sh"
 ensure_rust () {
 
     local tc="${1:-stable}"
+    local ensure_nightly="${2:-1}"
     local uname_s=""
 
     export PATH="${HOME}/.cargo/bin:${PATH}"
@@ -11,7 +12,6 @@ ensure_rust () {
     if [[ -n "${GITHUB_PATH:-}" ]]; then
         printf '%s\n' "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
     fi
-
     has_cmd rustup && {
 
         rustup which rustc >/dev/null 2>&1 || {
@@ -19,12 +19,12 @@ ensure_rust () {
             run rustup default "${tc}"
         }
 
+        (( ensure_nightly )) && run rustup toolchain install nightly --profile minimal
         return 0
 
     }
 
     uname_s="$(uname -s 2>/dev/null || true)"
-
     need_cmd curl
 
     case "${uname_s}" in
@@ -52,6 +52,8 @@ ensure_rust () {
 
     run rustup toolchain install "${tc}" --profile minimal
     is_ci && run rustup default "${tc}"
+
+    (( ensure_nightly )) && run rustup toolchain install nightly --profile minimal
 
 }
 ensure_node () {
@@ -843,7 +845,7 @@ cmd_hack () {
 
     cd_root
     need_cmd cargo
-    has_cmd cargo-hack || die "cargo-hack not found. Run: vx ensure" 2
+    need_cmd cargo-hack
 
     local mode="powerset"
     local depth="2"
@@ -896,6 +898,94 @@ cmd_hack () {
     fi
 
     run "${base[@]}" --feature-powerset --depth "${depth}" "${pass[@]}"
+
+}
+cmd_fuzz () {
+
+    cd_root
+    need_cmd cargo
+
+    local tc="${RUST_NIGHTLY:-nightly}"
+    rustup toolchain list | awk '{print $1}' | grep -qx "${tc}" || run rustup toolchain install "${tc}" --profile minimal
+
+    local timeout="15" len="4096"
+    local have_max_total_time=0 have_max_len=0 in_post=0
+    local -a pre=()
+    local -a post=()
+
+    while [[ $# -gt 0 ]]; do
+
+        if [[ "$1" == "--" ]]; then
+            in_post=1
+            shift || true
+            continue
+        fi
+        if (( in_post )); then
+            case "$1" in
+                -max_total_time|-max_total_time=*) have_max_total_time=1 ;;
+                -max_len|-max_len=*) have_max_len=1 ;;
+            esac
+            post+=("$1")
+            shift || true
+            continue
+        fi
+
+        case "$1" in
+            --timeout) shift || true; [[ $# -gt 0 ]] || die "Missing value for --timeout" 2; timeout="$1"; shift || true ;;
+            --timeout=*) timeout="${1#*=}"; shift || true ;;
+            --len) shift || true; [[ $# -gt 0 ]] || die "Missing value for --len" 2; len="$1"; shift || true ;;
+            --len=*) len="${1#*=}"; shift || true ;;
+            -max_total_time|-max_total_time=*) have_max_total_time=1; post+=("$1"); shift || true ;;
+            -max_len|-max_len=*) have_max_len=1; post+=("$1"); shift || true ;;
+            *) pre+=("$1"); shift || true ;;
+        esac
+
+    done
+
+    if [[ "${#pre[@]}" -eq 0 ]] || [[ "${pre[0]-}" == -* ]]; then
+
+        [[ "${timeout}" =~ ^[0-9]+$ ]] || die "Invalid --timeout: ${timeout}" 2
+        [[ "${len}" =~ ^[0-9]+$ ]] || die "Invalid --len: ${len}" 2
+
+        (( have_max_total_time )) || [[ "${timeout}" == "0" ]] || post+=( "-max_total_time=${timeout}" )
+        (( have_max_len )) || [[ "${len}" == "0" ]] || post+=( "-max_len=${len}" )
+
+        local -a targets=()
+        mapfile -t targets < <(cargo +nightly fuzz list 2>/dev/null || true)
+        [[ "${#targets[@]}" -gt 0 ]] || die "No fuzz targets found. Run: cargo +nightly fuzz init && cargo +nightly fuzz add <name>" 2
+
+        local t=""
+        for t in "${targets[@]}"; do
+            [[ -n "${t}" ]] || continue
+
+            if [[ "${#post[@]}" -gt 0 ]]; then
+                run cargo +nightly fuzz run "${t}" "${pre[@]}" -- "${post[@]}" || die "Fuzzing failed: ${t}" 2
+            else
+                run cargo +nightly fuzz run "${t}" "${pre[@]}" || die "Fuzzing failed: ${t}" 2
+            fi
+        done
+
+        return 0
+    fi
+    if [[ "${#pre[@]}" -gt 0 ]]; then
+        case "${pre[0]}" in
+            run|list|init|add|clean|cmin|tmin|coverage|fmt) ;;
+            *) pre=( "run" "${pre[@]}" ) ;;
+        esac
+    fi
+    if [[ "${pre[0]}" == "run" ]]; then
+        [[ "${timeout}" =~ ^[0-9]+$ ]] || die "Invalid --timeout: ${timeout}" 2
+        [[ "${len}" =~ ^[0-9]+$ ]] || die "Invalid --len: ${len}" 2
+
+        (( have_max_total_time )) || [[ "${timeout}" == "0" ]] || post+=( "-max_total_time=${timeout}" )
+        (( have_max_len )) || [[ "${len}" == "0" ]] || post+=( "-max_len=${len}" )
+    fi
+    if [[ "${#post[@]}" -gt 0 ]]; then
+        run cargo +nightly fuzz "${pre[@]}" -- "${post[@]}"
+        return $?
+    fi
+
+    run cargo +nightly fuzz "${pre[@]}"
 
 }
 cmd_bench () {
@@ -1344,191 +1434,234 @@ cmd_fix_audit () {
     run cargo audit fix "$@"
 
 }
+
 cmd_doctor () {
 
     cd_root
-    log "== Doctor =="
+    export RUSTFLAGS='-Dwarnings'
+    export RUST_BACKTRACE='1'
 
-    log ""
-    log "== Environment =="
-    log "PWD: $(pwd)"
-    log "Shell: ${SHELL:-unknown}"
-    log "User: ${USER:-${USERNAME:-unknown}}"
-    log "CI: ${CI:-0}  GITHUB_ACTIONS: ${GITHUB_ACTIONS:-0}"
-    log "PATH: ${PATH}"
+    local ok=0 warn=0 fail=0
+    local distro="" wsl="no" ci="no"
+    local os="$(uname -s 2>/dev/null || echo unknown)"
+    local kernel="$(uname -r 2>/dev/null || echo unknown)"
+    local arch="$(uname -m 2>/dev/null || echo unknown)"
+    local shell="${SHELL:-unknown}"
 
-    log ""
-    log "== OS / Kernel =="
-    if has_cmd uname; then
-        uname -a || true
-        uname -s || true
-        uname -m || true
-    fi
-    if [[ -f /etc/os-release ]]; then
-        log "--- /etc/os-release ---"
-        sed -n '1,20p' /etc/os-release 2>/dev/null || true
-    fi
-    if has_cmd sw_vers; then
-        sw_vers || true
-    fi
+    [[ -r /etc/os-release ]] && distro="$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-unknown}")" || distro="unknown"
+    [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null && wsl="yes"
+    [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI:-}" ]] && ci="yes"
 
-    log ""
-    log "== Disk / CPU / Memory =="
-    if has_cmd df; then
-        df -h . 2>/dev/null || true
-    fi
-    if has_cmd nproc; then
-        log "CPU cores: $(nproc 2>/dev/null || echo '?')"
-    elif has_cmd sysctl; then
-        sysctl -n hw.ncpu 2>/dev/null || true
-    fi
-    if has_cmd free; then
-        free -h 2>/dev/null || true
-    elif has_cmd vm_stat; then
-        vm_stat 2>/dev/null | sed -n '1,12p' || true
-    fi
+    local cpu="$(lscpu 2>/dev/null | awk -F: '/Model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' || true)"
+    local cores="$(nproc 2>/dev/null || echo unknown)"
+    local mem="$(free -h 2>/dev/null | awk '/^Mem:/ { print $2 " total, " $7 " avail"; exit }' || true)"
+    local disk="$(df -h . 2>/dev/null | awk 'NR==2 { print $4 " free of " $2 " (" $5 " used)"; exit }' || true)"
 
-    log ""
-    log "== Git =="
-    if has_cmd git; then
-        git --version || true
-        git rev-parse --is-inside-work-tree >/dev/null 2>&1 && {
-            log "Repo: yes"
-            git status -sb 2>/dev/null | sed -n '1,10p' || true
-            git rev-parse --short HEAD 2>/dev/null || true
-        } || log "Repo: no"
+    [[ -n "${cpu}" ]] || cpu="$(awk -F: '/model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
+    [[ -n "${cpu}" ]] || cpu="unknown"
+    [[ -n "${mem}" ]] || mem="unknown"
+    [[ -n "${disk}" ]] || disk="unknown"
+
+    printf '\n=== System ===\n\n'
+
+    printf '  ✅ %-18s %s\n' "OS:" "${os}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Distro:" "${distro}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Kernel:" "${kernel}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Arch:" "${arch}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "WSL:" "${wsl}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "CI:" "${ci}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Shell:" "${shell}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "CPU:" "${cpu}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Cores:" "${cores}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Memory:" "${mem}"; ok=$(( ok + 1 ))
+    printf '  ✅ %-18s %s\n' "Disk:" "${disk}"; ok=$(( ok + 1 ))
+
+    printf '\n=== Repo ===\n\n'
+
+    local root="$(pwd 2>/dev/null || echo .)"
+
+    if has_cmd git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        local branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+        local head="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+        local dirty=""
+        
+        if git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null; then
+            dirty="clean"
+        else
+            dirty="dirty"
+        fi
+
+        printf '  ✅ %-18s %s\n' "Root:" "${root}"; ok=$(( ok + 1 ))
+        printf '  ✅ %-18s %s\n' "Branch:" "${branch}"; ok=$(( ok + 1 ))
+        printf '  ✅ %-18s %s\n' "Commit:" "${head}"; ok=$(( ok + 1 ))
+
+        if [[ "${dirty}" == "clean" ]]; then
+            printf '  ✅ %-18s %s\n' "Status:" "${dirty}"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "Status:" "${dirty}"; warn=$(( warn + 1 ))
+        fi
+
     else
-        log "git: missing"
+        printf '  ✅ %-18s %s\n' "Root:" "${root}"; ok=$(( ok + 1 ))
+        printf '  ⚠️ %-18s %s\n' "Git:" "not a git repo"; warn=$(( warn + 1 ))
     fi
 
-    log ""
-    log "== Rust =="
+    printf '\n=== Tooling ===\n\n'
+
     if has_cmd rustup; then
-        rustup --version || true
-        rustup show active-toolchain 2>/dev/null || true
 
-        log "--- toolchains ---"
-        rustup toolchain list 2>/dev/null || true
+        local rustc_v="$(rustc -V 2>/dev/null || true)"
+        local cargo_v="$(cargo -V 2>/dev/null || true)"
+        local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
+        local stable_tc="${RUST_STABLE:-stable}"
+        local nightly_tc="${RUST_NIGHTLY:-nightly}"
+        
+        if [[ -n "${rustc_v}" ]]; then
+            printf '  ✅ %-18s %s\n' "rustc:" "${rustc_v}"; ok=$(( ok + 1 ))
+        else
+            printf '  ❌ %-18s %s\n' "rustc:" "missing"; fail=$(( fail + 1 ))
+        fi
 
-        log "--- components (installed) ---"
-        rustup component list --installed 2>/dev/null || true
+        if rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -qE "^${stable_tc}(\$|-)"; then
+            printf '  ✅ %-18s %s\n' "stable:" "${stable_tc} installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "stable:" "${stable_tc} missing"; warn=$(( warn + 1 ))
+        fi
+
+        if rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -qE "^${nightly_tc}(\$|-)"; then
+            printf '  ✅ %-18s %s\n' "nightly:" "${nightly_tc} installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "nightly:" "${nightly_tc} missing"; warn=$(( warn + 1 ))
+        fi
+
+        if [[ -n "${active_tc}" ]]; then
+            printf '  ✅ %-18s %s\n' "active:" "${active_tc}"; ok=$(( ok + 1 ))
+        else
+            printf '  ✅ %-18s %s\n' "active:" "unknown"; ok=$(( ok + 1 ))
+        fi
+
+        if [[ -n "${cargo_v}" ]]; then
+            printf '  ✅ %-18s %s\n' "cargo:" "${cargo_v}"; ok=$(( ok + 1 ))
+        else
+            printf '  ❌ %-18s %s\n' "cargo:" "missing"; fail=$(( fail + 1 ))
+        fi
+
     else
-        log "rustup: missing"
+        printf '  ❌ %-18s %s\n' "rustup:" "missing"; fail=$(( fail + 1 ))
     fi
 
-    if has_cmd rustc; then
-        rustc -Vv || true
+    if has_cmd clang; then
+        printf '  ✅ %-18s %s\n' "clang:" "$(clang --version 2>/dev/null | head -n 1)"; ok=$(( ok + 1 ))
     else
-        log "rustc: missing"
+        printf '  ⚠️ %-18s %s\n' "clang:" "missing"; warn=$(( warn + 1 ))
     fi
+
+    if has_cmd llvm-config; then
+        printf '  ✅ %-18s %s\n' "llvm:" "$(llvm-config --version 2>/dev/null || true)"; ok=$(( ok + 1 ))
+    else
+        printf '  ⚠️ %-18s %s\n' "llvm:" "missing"; warn=$(( warn + 1 ))
+    fi
+
+    if has_cmd node; then
+        printf '  ✅ %-18s %s\n' "node:" "$(node -v 2>/dev/null || true)"; ok=$(( ok + 1 ))
+    else
+        printf '  ⚠️ %-18s %s\n' "node:" "missing"; warn=$(( warn + 1 ))
+    fi
+
+    if has_cmd npx; then
+        printf '  ✅ %-18s %s\n' "npx:" "$(npx -v 2>/dev/null || true)"; ok=$(( ok + 1 ))
+    else
+        printf '  ⚠️ %-18s %s\n' "npx:" "missing"; warn=$(( warn + 1 ))
+    fi
+
+    if has_cmd npm; then
+        printf '  ✅ %-18s %s\n' "npm:" "$(npm -v 2>/dev/null || true)"; ok=$(( ok + 1 ))
+    else
+        printf '  ⚠️ %-18s %s\n' "npm:" "missing"; warn=$(( warn + 1 ))
+    fi
+
+    printf '\n=== Rustup ===\n\n'
+
+    if has_cmd rustup; then
+
+        local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
+
+        if rustup component list --toolchain "${active_tc}" --installed 2>/dev/null | awk '{print $1}' | grep -qE '^rustfmt($|-)'; then
+            printf '  ✅ %-18s %s\n' "rustfmt:" "installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "rustfmt:" " missing"; warn=$(( warn + 1 ))
+        fi
+
+        if rustup component list --toolchain "${active_tc}" --installed 2>/dev/null | awk '{print $1}' | grep -qE '^clippy($|-)'; then
+            printf '  ✅ %-18s %s\n' "clippy:" "installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "clippy:" "missing"; warn=$(( warn + 1 ))
+        fi
+
+        if rustup component list --toolchain "${active_tc}" --installed 2>/dev/null | awk '{print $1}' | grep -qE '^(llvm-tools|llvm-tools-preview)($|-)'; then
+            printf '  ✅ %-18s %s\n' "llvm-tools:" "installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "llvm-tools:" "missing"; warn=$(( warn + 1 ))
+        fi
+
+        if [[ -n "${RUSTFLAGS:-}" ]]; then
+            printf '  ✅ %-18s %s\n' "RUSTFLAGS:" "${RUSTFLAGS}"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "RUSTFLAGS:" "not set"; warn=$(( warn + 1 ))
+        fi
+
+        if [[ -n "${RUST_BACKTRACE:-}" ]]; then
+            printf '  ✅ %-18s %s\n' "RUST_BACKTRACE:" "${RUST_BACKTRACE}"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "RUST_BACKTRACE:" "not set"; warn=$(( warn + 1 ))
+        fi
+
+    else
+        printf '  ❌ %-18s %s\n' "rustup:" "missing"; fail=$(( fail + 1 ))
+    fi
+
+    printf '\n=== Cargo ===\n\n'
 
     if has_cmd cargo; then
-        cargo -V || true
+
+        has_cmd cargo-nextest && { printf '  ✅ %-18s %s\n' "nextest:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "nextest:" "missing"; warn=$(( warn + 1 )); }
+        has_cmd cargo-llvm-cov && { printf '  ✅ %-18s %s\n' "llvm-cov:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "llvm-cov:" "missing"; warn=$(( warn + 1 )); }
+        has_cmd cargo-deny && { printf '  ✅ %-18s %s\n' "cargo-deny:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-deny:" "missing"; warn=$(( warn + 1 )); }
+        has_cmd cargo-audit && { printf '  ✅ %-18s %s\n' "cargo-audit:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-audit:" "missing"; warn=$(( warn + 1 )); }
+        has_cmd cargo-hack && { printf '  ✅ %-18s %s\n' "cargo-hack:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-hack:" "missing"; warn=$(( warn + 1 )); }
+        has_cmd cargo-fuzz && { printf '  ✅ %-18s %s\n' "cargo-fuzz:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-fuzz:" "missing"; warn=$(( warn + 1 )); }
+
+        if [[ -d fuzz ]] && [[ -f fuzz/Cargo.toml ]]; then
+
+            local tc="${RUST_NIGHTLY:-nightly}"
+            local targets_cnt="0"
+
+            targets_cnt="$(cargo "+${tc}" fuzz list 2>/dev/null | wc -l | tr -d ' ' || true)"
+            [[ "${targets_cnt}" =~ ^[0-9]+$ ]] || targets_cnt="0"
+
+            if [[ "${targets_cnt}" -gt 0 ]]; then
+                printf '  ✅ %-18s %s\n' "fuzz-targets:" "${targets_cnt}"; ok=$(( ok + 1 ))
+            else
+                printf '  ⚠️ %-18s %s\n' "fuzz-targets:" "0"; warn=$(( warn + 1 ))
+            fi
+
+        fi
+
     else
-        log "cargo: missing"
+        printf '  ❌ %-18s %s\n' "cargo:" "missing"; fail=$(( fail + 1 ))
     fi
 
-    if has_cmd cargo && has_cmd jq; then
-        log ""
-        log "== Cargo Workspace =="
-        local msrv=""
-        msrv="$(cmd_msrv 2>/dev/null || true)"
-        [[ -n "${msrv}" ]] && log "MSRV: ${msrv}"
+    local ok_n="${ok}" warn_n="${warn}" fail_n="${fail}"
 
-        local pkgs=""
-        pkgs="$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages | length' 2>/dev/null || true)"
-        [[ -n "${pkgs}" ]] && log "Workspace packages: ${pkgs}"
+    printf '\n=== Summary ===\n\n'
+    printf '  ✅ %-18s %s\n' "OK:" "${ok_n}"
+    printf '  ⚠️ %-18s %s\n' "Warn:" "${warn_n}"
+    printf '  ❌ %-18s %s\n' "Fail:" "${fail_n}"
+    printf '\n'
 
-        local members=""
-        members="$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.workspace_members | length' 2>/dev/null || true)"
-        [[ -n "${members}" ]] && log "Workspace members: ${members}"
-    else
-        log ""
-        log "== Cargo Workspace =="
-        log "skip: cargo/jq not available for metadata"
-    fi
-
-    log ""
-    log "== OS Tools (used by vx/CI) =="
-    has_cmd curl     && curl --version 2>/dev/null | sed -n '1,2p' || log "curl: missing"
-    has_cmd jq       && jq --version 2>/dev/null || log "jq: missing"
-    has_cmd perl     && perl -v 2>/dev/null | sed -n '1,2p' || log "perl: missing"
-    has_cmd awk      && awk --version 2>/dev/null | sed -n '1,2p' || log "awk: missing"
-    has_cmd grep     && grep --version 2>/dev/null | sed -n '1,2p' || log "grep: missing"
-    has_cmd sort     && sort --version 2>/dev/null | sed -n '1,2p' || log "sort: missing"
-    has_cmd tail     && tail --version 2>/dev/null | sed -n '1,2p' || log "tail: missing"
-    has_cmd hunspell && hunspell -v 2>/dev/null || log "hunspell: missing (spellcheck needs it)"
-    has_cmd git      || true
-
-    log ""
-    log "== Cargo Tools (vx ensure installs) =="
-
-    if has_cmd cargo-deny; then
-        cargo deny --version 2>/dev/null || true
-    else
-        log "cargo-deny: missing"
-    fi
-
-    if has_cmd cargo-audit; then
-        cargo audit --version 2>/dev/null || cargo audit -V 2>/dev/null || true
-    else
-        log "cargo-audit: missing"
-    fi
-
-    if has_cmd cargo-nextest; then
-        cargo nextest --version 2>/dev/null || true
-    else
-        log "cargo-nextest: missing"
-    fi
-
-    if has_cmd cargo-hack; then
-        cargo hack --version 2>/dev/null || true
-    else
-        log "cargo-hack: missing"
-    fi
-
-    if has_cmd cargo-llvm-cov; then
-        cargo llvm-cov --version 2>/dev/null || true
-    else
-        log "cargo-llvm-cov: missing"
-    fi
-
-    if has_cmd cargo-spellcheck; then
-        cargo spellcheck --version 2>/dev/null || true
-    else
-        log "cargo-spellcheck: missing"
-    fi
-
-    if has_cmd taplo; then
-        taplo --version 2>/dev/null || true
-    else
-        log "taplo: missing"
-    fi
-
-    if has_cmd cargo-ci-cache-clean; then
-        cargo-ci-cache-clean --version 2>/dev/null || true
-    else
-        log "cargo-ci-cache-clean: missing"
-    fi
-
-    log ""
-    log "== Build Toolchain (nice-to-have) =="
-    if has_cmd cc; then
-        cc --version 2>/dev/null | sed -n '1,2p' || true
-    elif has_cmd clang; then
-        clang --version 2>/dev/null | sed -n '1,2p' || true
-    elif has_cmd gcc; then
-        gcc --version 2>/dev/null | sed -n '1,2p' || true
-    else
-        log "C compiler: missing (some crates may need it)"
-    fi
-
-    has_cmd pkg-config && pkg-config --version 2>/dev/null || log "pkg-config: missing (some native deps may need it)"
-    has_cmd make       && make --version 2>/dev/null | sed -n '1,2p' || log "make: missing"
-
-    log ""
-    log "=================="
-    log "OK"
+    (( fail_n == 0 )) || return 1
+    return 0
 
 }
 cmd_meta () {
@@ -2223,6 +2356,7 @@ cmd_ensure () {
     ensure_crate taplo-cli             taplo
     ensure_crate cargo-nextest         cargo-nextest
     ensure_crate cargo-hack            cargo-hack
+    ensure_crate cargo-fuzz            cargo-fuzz
     ensure_crate cargo-ci-cache-clean  cargo-ci-cache-clean
     ensure_crate cargo-semver-checks   cargo-semver-checks
 
@@ -2306,6 +2440,17 @@ cmd_ci_hack () {
     printf "\n✅ CI HACKING Succeeded.\n\n"
 
 }
+cmd_ci_fuzz () {
+
+    cmd_ensure
+
+    printf "\n💥 Fuzzing ...\n\n"
+    cmd_fuzz "$@"
+
+    cmd_clean_cache
+    printf "\n✅ CI FUZZING Succeeded.\n\n"
+
+}
 cmd_ci_semver () {
 
     cmd_ensure
@@ -2381,6 +2526,9 @@ cmd_ci_local () {
 
     printf "\n💥 Hacking ...\n\n"
     cmd_hack
+
+    printf "\n💥 Fuzzing ...\n\n"
+    cmd_fuzz
 
     printf "\n💥 Semver ...\n\n"
     cmd_semver

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["tests", "benches", "examples", "crates/api", "crates/string", "crates/web"]
+members = ["tests", "benches", "examples", "fuzz", "crates/api", "crates/string", "crates/web"]
 
 [workspace.package]
 version = "0.1.0"

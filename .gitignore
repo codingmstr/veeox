@@ -1,5 +1,9 @@
 /target/
 **/target/
+**/criterion/
+**/artifacts/
+**/corpus/
+**/coverage/
 
 **/*.rs.bk
 **/*.rs.tmp
@@ -30,9 +34,6 @@ Desktop.ini
 **/*.data
 **/*.data.old
 
-**/criterion/
-
-**/coverage/
 **/*.lcov
 lcov.*
 codecov.*
