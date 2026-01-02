@@ -340,18 +340,18 @@ dedupe_inplace () {
     [[ -n "${name}" ]] || return 0
     [[ "${name}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || die "Invalid array name: ${name}" 2
 
-    local -a in=()
-    eval "in=(\"\${${name}[@]}\")"
+    local in=()
+    eval "in=(\"\${${name}[@]-}\")"
 
-    local -a out=()
+    local out=()
     local x="" y="" found=0
 
-    for x in "${in[@]}"; do
+    for x in "${in[@]-}"; do
 
         [[ -n "${x}" ]] || continue
 
         found=0
-        for y in "${out[@]}"; do
+        for y in "${out[@]-}"; do
             if [[ "${y}" == "${x}" ]]; then
                 found=1
                 break
@@ -364,7 +364,7 @@ dedupe_inplace () {
     done
 
     local assign=""
-    for x in "${out[@]}"; do
+    for x in "${out[@]-}"; do
         assign+=" $(printf '%q' "${x}")"
     done
 
@@ -375,14 +375,17 @@ win_try_add_paths () {
 
     local -a candidates=(
         "/c/Program Files/Git/usr/bin"
+        "/c/Program Files/Git/mingw64/bin"
         "/c/Program Files/Git/bin"
         "/c/Program Files (x86)/Git/usr/bin"
+        "/c/Program Files (x86)/Git/mingw64/bin"
         "/c/Program Files (x86)/Git/bin"
         "/c/ProgramData/chocolatey/bin"
         "/c/Windows/System32"
         "/c/Windows"
     )
 
+    local -a add=()
     local p=""
 
     for p in "${candidates[@]}"; do
@@ -391,10 +394,19 @@ win_try_add_paths () {
 
         case ":${PATH}:" in
             *":${p}:"*) ;;
-            *) export PATH="${p}:${PATH}" ;;
+            *) add+=( "${p}" ) ;;
         esac
 
     done
+
+    ((${#add[@]})) || return 0
+
+    local prefix=""
+    for p in "${add[@]}"; do
+        prefix+="${p}:"
+    done
+
+    export PATH="${prefix}${PATH}"
 
 }
 ensure_pkg () {
@@ -515,6 +527,7 @@ ensure_pkg () {
     fi
 
     win_try_add_paths
+    has_cmd sort && { sort --version 2>/dev/null | grep -qi 'coreutils' || die "Windows: 'sort' is not GNU coreutils (PATH order issue)." 2; }
 
     local -a w_ids=()
     local -a c_pkgs=()
