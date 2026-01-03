@@ -24,15 +24,15 @@ vx ci-local
 
 This repository is a Cargo workspace containing multiple crates:
 
-* `crates/web/` -> `veeox` (facade)
-* `crates/api/` -> `veeox-api`
-* `crates/string/` -> `veeox-string`
+-   `crates/web/` -> `veeox` (facade)
+-   `crates/api/` -> `veeox-api`
+-   `crates/string/` -> `veeox-string`
 
 ## Pull Requests
 
-* Keep PRs focused (one change per PR if possible).
-* Update tests/docs when it makes sense.
-* Fill the PR template (Type + Scope + Checklist).
+-   Keep PRs focused (one change per PR if possible).
+-   Update tests/docs when it makes sense.
+-   Fill the PR template (Type + Scope + Checklist).
 
 ## Code of Conduct
 

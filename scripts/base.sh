@@ -111,7 +111,20 @@ path_expand () {
 }
 is_ci () {
 
-    [[ "${CI:-}" =~ ^(1|true|yes)$ ]] || [[ -n "${GITHUB_ACTIONS:-}" ]]
+    local v=""
+
+    v="${CI:-}"
+    [[ "${v}" =~ ^(1|true|yes)$ ]] && return 0
+
+    [[ -n "${GITHUB_ACTIONS:-}" ]] && return 0
+    [[ -n "${GITLAB_CI:-}" ]] && return 0
+    [[ -n "${BUILDKITE:-}" ]] && return 0
+    [[ -n "${CIRCLECI:-}" ]] && return 0
+    [[ -n "${TRAVIS:-}" ]] && return 0
+    [[ -n "${TF_BUILD:-}" ]] && return 0
+    [[ -n "${JENKINS_URL:-}" ]] && return 0
+
+    return 1
 
 }
 is_wsl () {

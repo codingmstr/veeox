@@ -1,4 +1,4 @@
-353
+354
 &
 +
 0o777
@@ -87,6 +87,7 @@ Repro
 Roadmap
 RustSec
 Scalable
+Sexualized
 SmallCrush
 Solaris
 Splitter
@@ -173,6 +174,7 @@ destructors
 destructure
 dns
 docs.rs
+doxxing
 dwOpenMode
 endian
 enqueue
@@ -219,7 +221,6 @@ lifo
 lookups
 macOS
 maintainer's
-maintainer’s
 memchr
 metadata
 mio

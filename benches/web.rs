@@ -1,5 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use veeox::{Middleware, Request, Response, Route, Server};
 
 fn bench_web(c: &mut Criterion) {

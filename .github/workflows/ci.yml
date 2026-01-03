@@ -31,8 +31,8 @@ env:
   NODE_VERSION: '25'
 
 jobs:
-  fast:
-    name: fast
+  stable:
+    name: stable
     runs-on: ubuntu-latest
 
     steps:
@@ -43,16 +43,73 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run CI-FAST
-        run: bash ./scripts/run.sh ci-fast
+      - name: Run CI-STABLE
+        run: bash ./scripts/run.sh ci-stable
 
-  fmt:
-    name: fmt
+  nightly:
+    name: nightly
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_NIGHTLY }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-NIGHTLY
+        run: bash ./scripts/run.sh ci-nightly
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_MSRV }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-MSRV
+        run: bash ./scripts/run.sh ci-msrv
+
+  doc:
+    name: doc
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-DOC
+        run: bash ./scripts/run.sh ci-doc
+
+  lint:
+    name: lint
     runs-on: ubuntu-latest
 
     steps:
@@ -68,33 +125,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run CI-FMT
-        run: bash ./scripts/run.sh ci-fmt
-
-  doc:
-    name: doc
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-DOC
-        run: bash ./scripts/run.sh ci-doc
+      - name: Run CI-LINT
+        run: bash ./scripts/run.sh ci-lint
 
   hack:
     name: hack
@@ -108,7 +144,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
@@ -133,54 +168,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run CI-FAST
-        run: bash ./scripts/run.sh ci-fast
-
-  msrv:
-    name: msrv
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_MSRV }}
-          components: rustfmt, clippy
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-MSRV
-        run: bash ./scripts/run.sh ci-msrv
-
-  nightly:
-    name: nightly
-    runs-on: ubuntu-latest
-    continue-on-error: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_NIGHTLY }}
-          components: rustfmt, clippy
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-NIGHTLY
-        run: bash ./scripts/run.sh ci-nightly
+      - name: Run CI-STABLE
+        run: bash ./scripts/run.sh ci-stable
 
   fuzz:
     name: fuzz
@@ -194,7 +187,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_NIGHTLY }}
-          components: rustfmt, clippy
 
       - name: Setup Cache
         uses: Swatinem/rust-cache@v2
@@ -214,7 +206,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
@@ -234,7 +225,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2
@@ -249,7 +239,7 @@ jobs:
     name: publish
     runs-on: ubuntu-latest
 
-    needs: [fast, fmt, doc, hack, cross, msrv, semver, coverage]
+    needs: [stable, lint, doc, hack, cross, msrv, semver, coverage]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
     steps:
@@ -262,7 +252,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_STABLE }}
-          components: rustfmt, clippy
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2

@@ -8,14 +8,14 @@ Issues, Pull Requests, Discussions, and other project spaces.
 ## Enforcement
 
 Violations can be reported by contacting the project maintainer(s). If you need a private channel,
-use the contact method listed on the maintainer’s GitHub profile (or request a private follow-up in
+use the contact method listed on the maintainer's GitHub profile (or request a private follow-up in
 a GitHub Discussion).
 
-We will investigate reports and take appropriate action, including moderating content and restricting
-participation when necessary.
+We will investigate reports and take appropriate action, including moderating content and
+restricting participation when necessary.
 
 ## Unacceptable behavior (examples)
 
-- Harassment, hate speech, or personal attacks
-- Sexualized language or unwelcome sexual attention
-- Deliberate disruption, intimidation, or doxxing
+-   Harassment, hate speech, or personal attacks
+-   Sexualized language or unwelcome sexual attention
+-   Deliberate disruption, intimidation, or doxxing
