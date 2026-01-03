@@ -18,9 +18,9 @@ We value your time and ours. To get a fast answer, please:
 
 1. **Run the Doctor:**
 
-    ```bash
-    vx doctor
-    ```
+   ```bash
+   vx doctor
+   ```
 
 Paste the relevant output (and **redact tokens/secrets** if any).
 
@@ -31,6 +31,6 @@ Paste the relevant output (and **redact tokens/secrets** if any).
 
 **Veeox** is community-driven.
 
--   **Bugs:** regressions and blockers get priority.
--   **Features:** discuss first in Discussions.
--   **Response:** high-quality reports (with repro + `vx doctor`) get faster responses.
+- **Bugs:** regressions and blockers get priority.
+- **Features:** discuss first in Discussions.
+- **Response:** high-quality reports (with repro + `vx doctor`) get faster responses.

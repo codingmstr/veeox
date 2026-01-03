@@ -1,8 +1,10 @@
-
 comment: false
 
 codecov:
   require_ci_to_pass: true
+
+github_checks:
+  annotations: true
 
 coverage:
   precision: 2
@@ -14,19 +16,30 @@ coverage:
       default:
         target: 80%
         threshold: 1%
-        informational: true
+        informational: false
 
     patch:
       default:
-        target: 85%
+        target: 90%
         threshold: 1%
-        informational: true
+        informational: false
+
+flags:
+  crates:
+    paths:
+      - crates/**
+    carryforward: true
 
 ignore:
-  - "target/**"
   - "**/target/**"
-  - "**/*.md"
-  - "**/build.rs"
-  - "tests/**"
-  - "benches/**"
-  - "examples/**"
+  - "**/.git/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.venv/**"
+  - "**/.idea/**"
+  - "**/.vscode/**"
+  - "**/tests/**"
+  - "**/benches/**"
+  - "**/examples/**"
+  - "**/fuzz/**"

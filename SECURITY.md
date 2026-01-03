@@ -14,11 +14,11 @@ GitHub profile.
 
 To help us triage quickly, include:
 
--   Affected crate(s) and version(s)
--   Impact and severity (what can an attacker do?)
--   Minimal reproduction / PoC (if possible)
--   Steps to reproduce + environment details
--   Any relevant logs or error output
+- Affected crate(s) and version(s)
+- Impact and severity (what can an attacker do?)
+- Minimal reproduction / PoC (if possible)
+- Steps to reproduce + environment details
+- Any relevant logs or error output
 
 **Do not include secrets** (tokens, private keys, credentials) in reports or logs.
 

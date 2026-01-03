@@ -1,23 +1,27 @@
 printWidth: 100
-tabWidth: 4
+tabWidth: 2
 useTabs: false
 
 semi: true
 singleQuote: true
+jsxSingleQuote: true
 quoteProps: as-needed
 
 trailingComma: all
 bracketSpacing: true
+bracketSameLine: false
 arrowParens: always
 
 endOfLine: lf
-proseWrap: always
+proseWrap: preserve
+singleAttributePerLine: false
+embeddedLanguageFormatting: auto
 
 overrides:
   - files: ['*.yml', '*.yaml']
     options:
       tabWidth: 2
 
-  - files: '*.md'
+  - files: ['*.md', '*.mdx']
     options:
-      printWidth: 100
+      embeddedLanguageFormatting: off

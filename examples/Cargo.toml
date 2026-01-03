@@ -1,14 +1,15 @@
 [package]
 name = "examples"
-description = "workspace examples"
-publish = false
 version.workspace = true
 rust-version.workspace = true
+edition.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-authors.workspace = true
-edition.workspace = true
+readme.workspace = true
+publish = false
+description = "workspace examples"
 
 [dependencies]
 veeox = { workspace = true }

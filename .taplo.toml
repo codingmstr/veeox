@@ -1,5 +1,14 @@
 include = ["**/*.toml"]
-exclude = ["**/target/**", ".git/**"]
+exclude = [
+    "**/target/**",
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.venv/**",
+    "**/.idea/**",
+    "**/.vscode/**",
+]
 
 [formatting]
 indent_string = "    "
@@ -16,8 +25,18 @@ formatting.reorder_keys = false
 
 [[rule]]
 include = ["**/Cargo.toml"]
+keys = ["workspace", "workspace.members", "workspace.exclude"]
+formatting.reorder_keys = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = ["workspace.package.*"]
+formatting.reorder_keys = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
 keys = ["features"]
-formatting.column_width = 105
+formatting.column_width = 100
 formatting.reorder_keys = false
 
 [[rule]]
@@ -30,7 +49,7 @@ keys = [
     "target.*.dependencies",
     "target.*.*-dependencies",
 ]
-formatting.column_width = 120
+formatting.column_width = 100
 formatting.reorder_keys = true
 
 [[rule]]
@@ -43,5 +62,5 @@ keys = [
     "target.*.dependencies.*",
     "target.*.*-dependencies.*",
 ]
-formatting.column_width = 120
-formatting.reorder_keys = false
+formatting.column_width = 100
+formatting.reorder_keys = true

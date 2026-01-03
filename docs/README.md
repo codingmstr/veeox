@@ -7,7 +7,7 @@ considered a map to help you navigate the process.
 
 If you are unsure where to begin, use the following guides:
 
--   Looking for something to work on? Filter issues by
-    [`E-help-wanted`](https://github.com/codingmstr/veeox).
+- Looking for something to work on? Filter issues by
+  [`E-help-wanted`](https://github.com/codingmstr/veeox).
 
 ## Table of Contents

@@ -5,9 +5,9 @@ A modern Rust ecosystem for building reliable, high-performance backend and web 
 **veeox** is designed around small, focused crates with a clean facade crate (`veeox`) that
 re-exports the core building blocks.
 
--   **Fast:** performance-first APIs with minimal overhead.
--   **Reliable:** Rust type system + ownership to reduce bugs.
--   **Scalable:** modular crates, clear boundaries, and production-grade practices.
+- **Fast:** performance-first APIs with minimal overhead.
+- **Reliable:** Rust type system + ownership to reduce bugs.
+- **Scalable:** modular crates, clear boundaries, and production-grade practices.
 
 Crates.io | MIT licensed | CI (coming soon)
 
@@ -20,16 +20,16 @@ Website | Guides | API Docs | Chat (coming soon)
 veeox is a workspace of crates that will evolve into a full backend stack. At a high level, it aims
 to provide:
 
--   A web facade crate (`veeox`) exporting stable, ergonomic primitives.
--   Utility crates (strings, api contracts, config, env, logging, etc.).
--   Clean integration patterns with the wider Rust ecosystem (tokio, hyper, tracing, serde, memchr,
-    ...).
+- A web facade crate (`veeox`) exporting stable, ergonomic primitives.
+- Utility crates (strings, api contracts, config, env, logging, etc.).
+- Clean integration patterns with the wider Rust ecosystem (tokio, hyper, tracing, serde, memchr,
+  ...).
 
 ### Workspace crates (current)
 
--   **veeox** (facade; located in `web/`)
--   **veeox-api** (contracts & shared API utilities)
--   **veeox-string** (string/text utilities)
+- **veeox** (facade; located in `web/`)
+- **veeox-api** (contracts & shared API utilities)
+- **veeox-string** (string/text utilities)
 
 > Status: early `0.1.x` — APIs may change.
 
@@ -64,8 +64,8 @@ fn main () {
 
 ## Getting Help
 
--   Start with the repository README and crate documentation on docs.rs (once published).
--   If you have questions, open a GitHub Discussion (recommended) or an Issue.
+- Start with the repository README and crate documentation on docs.rs (once published).
+- If you have questions, open a GitHub Discussion (recommended) or an Issue.
 
 ---
 
@@ -79,9 +79,9 @@ See `CONTRIBUTING.md` for development setup and contribution guidelines.
 
 ## Roadmap (high-level)
 
--   Solidify the facade API surface (`Request`, `Response`, `Route`, `Server`, `Middleware`).
--   Expand `veeox-string` with fast, Unicode-aware text primitives.
--   Add ecosystem crates: `veeox-env`, `veeox-config`, `veeox-log`, `veeox-cache`, `veeox-db`, ...
+- Solidify the facade API surface (`Request`, `Response`, `Route`, `Server`, `Middleware`).
+- Expand `veeox-string` with fast, Unicode-aware text primitives.
+- Add ecosystem crates: `veeox-env`, `veeox-config`, `veeox-log`, `veeox-cache`, `veeox-db`, ...
 
 ---
 

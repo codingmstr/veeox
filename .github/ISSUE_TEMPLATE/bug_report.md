@@ -36,8 +36,8 @@ vx doctor
 
 ## 🧷 Version / commit
 
--   Veeox version/tag: `v0.x.y`
--   Commit SHA: `abcdef0`
+- Veeox version/tag: `v0.x.y`
+- Commit SHA: `abcdef0`
 
 ## 🧩 Additional context
 

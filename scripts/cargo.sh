@@ -551,66 +551,68 @@ cargo_run () {
 cargo_help () {
 
     cat <<'OUT'
-    ensure           Ensure all vx used crates installed
-    new              Create a new crate and (optionally) add it to the workspace
-    build            Build the whole workspace, or a single crate if specified
-    run              Run a binary (use -p/--package to pick a crate, or pass a bin name)
+    ensure              Ensure all vx used crates installed
+    new                 Create a new crate and (optionally) add it to the workspace
+    build               Build the whole workspace, or a single crate if specified
+    run                 Run a binary (use -p/--package to pick a crate, or pass a bin name)
 
-    check            Run compile checks for all crates and targets (no binaries produced)
-    test             Run the full test suite (workspace-wide or a single crate)
-    hack             Run feature matrix checks using cargo-hack (each-feature or powerset)
-    fuzz             Run fuzz targets to find crashes/panics (uses cargo-fuzz)
-    semver           Run cargo semver checks using cargo-semver-checks
-    bench            Run benchmarks (workspace-wide or a single crate)
-    example          Run an example target by name, forwarding extra args after --
-    clean            Remove build artifacts
+    check               Run compile checks for all crates and targets (no binaries produced)
+    test                Run the full test suite (workspace-wide or a single crate)
+    hack                Run feature matrix checks using cargo-hack (each-feature or powerset)
+    fuzz                Run fuzz targets to find crashes/panics (uses cargo-fuzz)
+    semver              Run cargo semver checks using cargo-semver-checks
+    bench               Run benchmarks (workspace-wide or a single crate)
+    example             Run an example target by name, forwarding extra args after --
+    clean               Remove build artifacts
 
-    msrv             Get the latest minimum support rust version in all crates, return (env.RUST_MSRV if exists)
-    msrv-check       Validate that your Rust compiler satisfies the workspace checks msrv
-    msrv-test        Validate that your Rust compiler satisfies the workspace tests msrv
-    nightly-check    Validate that your Rust compiler satisfies the workspace checks nightly version
-    nightly-test     Validate that your Rust compiler satisfies the workspace tests nightly version
+    msrv                Get the latest minimum support rust version in all crates, return (env.RUST_MSRV if exists)
+    msrv-check          Validate that your Rust compiler satisfies the workspace checks msrv
+    msrv-test           Validate that your Rust compiler satisfies the workspace tests msrv
+    nightly-check       Validate that your Rust compiler satisfies the workspace checks nightly version
+    nightly-test        Validate that your Rust compiler satisfies the workspace tests nightly version
 
-    fix-ws           Remove trailing whitespace in git-tracked files
-    check-fmt        Verify formatting (no changes)
-    fix-fmt          Auto-format code
+    fix-ws              Remove trailing whitespace in git-tracked files
+    check-fmt           Verify formatting (no changes)
+    fix-fmt             Auto-format code
+    check-fmt-nightly   Verify formatting checks --nightly (no changes)
+    fix-fmt-nightly     Auto-format code --nightly
 
-    clippy           Run lints on crates/ only (strict)
-    clippy-strict    Run lints on the full workspace (very strict)
+    clippy              Run lints on crates/ only (strict)
+    clippy-strict       Run lints on the full workspace (very strict)
 
-    spellcheck       Spellcheck docs and text files
-    coverage         Generate coverage reports (lcov + codecov json)
+    spellcheck          Spellcheck docs and text files
+    coverage            Generate coverage reports (lcov + codecov json)
 
-    check-audit      Security advisory checks (policy gate)
-    fix-audit        Apply automatic dependency upgrades to address advisories
+    check-audit         Security advisory checks (policy gate)
+    fix-audit           Apply automatic dependency upgrades to address advisories
 
-    check-prettier   Validate formatting for Markdown/YAML/etc. (no changes)
-    fix-prettier     Auto-format Markdown/YAML/etc.
+    check-prettier      Validate formatting for Markdown/YAML/etc. (no changes)
+    fix-prettier        Auto-format Markdown/YAML/etc.
 
-    check-taplo      Validate TOML formatting (no changes)
-    fix-taplo        Auto-format TOML files
+    check-taplo         Validate TOML formatting (no changes)
+    fix-taplo           Auto-format TOML files
 
-    check-doc        Build docs strictly (workspace or single crate)
-    test-doc         Run documentation tests (doctests)
-    open-doc         Build docs then open them in your browser
+    check-doc           Build docs strictly (workspace or single crate)
+    test-doc            Run documentation tests (doctests)
+    open-doc            Build docs then open them in your browser
 
-    doctor           Show tool versions and optional tooling availability
-    meta             Show workspace metadata (members, names, packages, publishable set)
-    publish          Publish crates in dependency order (workspace publish)
-    yank             Yank a published version (or undo yank)
+    doctor              Show tool versions and optional tooling availability
+    meta                Show workspace metadata (members, names, packages, publishable set)
+    publish             Publish crates in dependency order (workspace publish)
+    yank                Yank a published version (or undo yank)
 
-    ci-stable        CI stable pipeline (check + test + clippy)
-    ci-lint          CI lint pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)
-    ci-doc           CI docs pipeline (check-doc + test-doc)
-    ci-hack          CI feature-matrix pipeline (cargo-hack)
-    ci-fuzz          CI fuzz pipeline (runs targets with timeout & corpus)
-    ci-coverage      CI coverage pipeline (llvm-cov)
-    ci-msrv          CI MSRV pipeline (check + test --no-run on MSRV toolchain)
-    ci-nightly       CI NIGHTLY pipeline (check + test --no-run on NIGHTLY toolchain)
-    ci-semver        CI SEMVER pipeline (check semver)
-    ci-publish       CI publish gate then publish (full checks + publish)
+    ci-stable           CI stable pipeline (check + test + clippy)
+    ci-lint             CI lint pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)
+    ci-doc              CI docs pipeline (check-doc + test-doc)
+    ci-hack             CI feature-matrix pipeline (cargo-hack)
+    ci-fuzz             CI fuzz pipeline (runs targets with timeout & corpus)
+    ci-coverage         CI coverage pipeline (llvm-cov)
+    ci-msrv             CI MSRV pipeline (check + test --no-run on MSRV toolchain)
+    ci-nightly          CI NIGHTLY pipeline (check + test --no-run on NIGHTLY toolchain)
+    ci-semver           CI SEMVER pipeline (check semver)
+    ci-publish          CI publish gate then publish (full checks + publish)
 
-    ci-local         Run a local CI full workflow ci pipline ( full ci-xxx features )
+    ci-local            Run a local CI full workflow ci pipline ( full ci-xxx features )
 OUT
 }
 
@@ -1009,6 +1011,16 @@ cmd_fix_fmt () {
     need_cmd rustfmt
 
     cargo_run fmt --all "$@"
+
+}
+cmd_check_fmt_nightly () {
+
+    cmd_check_fmt --nightly
+
+}
+cmd_fix_fmt_nightly () {
+
+    cmd_fix_fmt --nightly
 
 }
 cmd_clippy () {
@@ -2600,7 +2612,7 @@ cmd_ci_lint () {
     cmd_check_audit "$@"
 
     printf "\n💥 Check Format ...\n\n"
-    cmd_check_fmt "$@"
+    cmd_check_fmt --nightly "$@"
 
     printf "\n💥 Check Taplo ...\n\n"
     cmd_check_taplo "$@"
@@ -2699,7 +2711,7 @@ cmd_ci_local () {
     cmd_check_audit
 
     printf "\n💥 Check Format ...\n\n"
-    cmd_check_fmt
+    cmd_check_fmt --nightly
 
     printf "\n💥 Check Taplo ...\n\n"
     cmd_check_taplo
