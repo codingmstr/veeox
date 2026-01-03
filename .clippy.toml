@@ -2,7 +2,6 @@
 # Controlled by: Clippy MSRV engine (used by msrv-aware lints; Cargo.toml sets MSRV gate indirectly via clippy config)
 msrv = "1.90.0"
 
-
 # Maintainability
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (these groups include maintainability lints)
 # Key lints affected: clippy::too_many_arguments, clippy::too_many_lines, clippy::type_complexity,
@@ -13,7 +12,6 @@ type-complexity-threshold = 100
 cognitive-complexity-threshold = 15
 excessive-nesting-threshold = 3
 max-trait-bounds = 2
-
 
 # Memory
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (perf/memory heuristics lints live here)
@@ -26,7 +24,6 @@ array-size-threshold = 8192
 large-error-threshold = 64
 enum-variant-size-threshold = 160
 
-
 # Docs
 # Controlled by:
 #   - [workspace.lints.rust]    missing_docs = "deny"
@@ -35,7 +32,6 @@ enum-variant-size-threshold = 160
 check-private-items = true
 missing-docs-in-crate-items = true
 missing-docs-allow-unused = false
-
 
 # Tests
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
@@ -48,11 +44,9 @@ allow-expect-in-tests = false
 allow-indexing-slicing-in-tests = false
 allow-useless-vec-in-tests = false
 
-
 # MSRV Tests
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (MSRV-aware lints)
 check-incompatible-msrv-in-tests = true
-
 
 # Const
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
@@ -61,24 +55,20 @@ allow-unwrap-in-consts = false
 allow-expect-in-consts = false
 suppress-restriction-lint-in-const = false
 
-
 # Imports
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
 warn-on-all-wildcard-imports = true
 allowed-wildcard-imports = []
-
 
 # SemVer
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
 # Key lints affected: clippy::avoid_breaking_exported_api (explicitly denied in Cargo.toml)
 avoid-breaking-exported-api = true
 
-
 # Ident Length
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
 min-ident-chars-threshold = 2
 allowed-idents-below-min-chars = ["id", "ok", ".."]
-
 
 # Naming Vars
 # Controlled by:
@@ -87,16 +77,13 @@ allowed-idents-below-min-chars = ["id", "ok", ".."]
 single-char-binding-names-threshold = 2
 disallowed-names = ["e", "t", "tmp", ".."]
 
-
 # Doc Idents
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (doc_markdown-related lints)
 doc-valid-idents = [".."]
 
-
 # Unicode Scripts
 # Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
 allowed-scripts = ["Latin"]
-
 
 # Banned Macros
 # Controlled by: [workspace.lints.clippy] disallowed_macros = "deny"
@@ -112,7 +99,6 @@ disallowed-macros = [
     { path = "core::unimplemented", reason = "no unimplemented! in libs", allow-invalid = true },
     { path = "core::unreachable", reason = "avoid unreachable! in libs; prove invariants or handle error", allow-invalid = true },
 ]
-
 
 # Banned Methods
 # Controlled by: [workspace.lints.clippy] disallowed_methods = "deny"
@@ -131,7 +117,6 @@ disallowed-methods = [
     { path = "std::vec::Vec::leak", reason = "no leaking memory", allow-invalid = true },
     { path = "std::boxed::Box::leak", reason = "no leaking memory", allow-invalid = true },
 ]
-
 
 # Banned Types
 # Controlled by: [workspace.lints.clippy] disallowed_types = "deny"

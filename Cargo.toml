@@ -24,43 +24,46 @@ veeox-string = { path = "crates/string", version = "0.1.0" }
 
 criterion = "0.5.1"
 
-# lints
+# ************************************
+# All Clippy lints features
+# ************************************
+
 [workspace.lints.rust]
 warnings = "deny"
 
 future_incompatible = { level = "deny", priority = -1 }
-rust_2018_idioms    = { level = "deny", priority = -1 }
-nonstandard_style   = { level = "deny", priority = -1 }
-unused              = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
 
 unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "allow"
 
 [workspace.lints.rustdoc]
-broken_intra_doc_links     = "deny"
-private_intra_doc_links    = "deny"
-missing_crate_level_docs   = "deny"
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+missing_crate_level_docs = "deny"
 
 [workspace.lints.clippy]
-all      = { level = "deny", priority = -1 }
+all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
-nursery  = { level = "deny", priority = -1 }
-cargo    = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
 
 disallowed_methods = "deny"
-disallowed_names   = "deny"
-disallowed_types   = "deny"
-disallowed_macros  = "deny"
+disallowed_names = "deny"
+disallowed_types = "deny"
+disallowed_macros = "deny"
 
-unwrap_used  = "deny"
-expect_used  = "deny"
-panic        = "deny"
-dbg_macro    = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
-todo         = "deny"
-unimplemented= "deny"
-exit         = "deny"
+todo = "deny"
+unimplemented = "deny"
+exit = "deny"
 indexing_slicing = "deny"
 undocumented_unsafe_blocks = "deny"
 
