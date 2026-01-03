@@ -1,11 +1,5 @@
-# Msrv
-# Controlled by: Clippy MSRV engine (used by msrv-aware lints; Cargo.toml sets MSRV gate indirectly via clippy config)
 msrv = "1.90.0"
 
-# Maintainability
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (these groups include maintainability lints)
-# Key lints affected: clippy::too_many_arguments, clippy::too_many_lines, clippy::type_complexity,
-#                     clippy::cognitive_complexity, clippy::excessive_nesting, clippy::max_trait_bounds
 too-many-arguments-threshold = 5
 too-many-lines-threshold = 80
 type-complexity-threshold = 100
@@ -13,9 +7,6 @@ cognitive-complexity-threshold = 15
 excessive-nesting-threshold = 3
 max-trait-bounds = 2
 
-# Memory
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (perf/memory heuristics lints live here)
-# Key lints affected: clippy::future_not_send (size-related), clippy::large_stack_arrays, clippy::large_enum_variant, etc.
 future-size-threshold = 8192
 pass-by-value-size-limit = 192
 too-large-for-stack = 512
@@ -24,18 +15,6 @@ array-size-threshold = 8192
 large-error-threshold = 64
 enum-variant-size-threshold = 160
 
-# Docs
-# Controlled by:
-#   - [workspace.lints.rust]    missing_docs = "deny"
-#   - [workspace.lints.rustdoc] missing_crate_level_docs = "deny"
-#   - [workspace.lints.clippy]  all/pedantic/nursery/cargo (doc-related clippy lints)
-check-private-items = true
-missing-docs-in-crate-items = true
-missing-docs-allow-unused = false
-
-# Tests
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
-# Key lints affected: clippy::dbg_macro, clippy::print_stdout/print_stderr, clippy::panic, clippy::unwrap_used, clippy::expect_used
 allow-dbg-in-tests = false
 allow-print-in-tests = false
 allow-panic-in-tests = false
@@ -43,65 +22,41 @@ allow-unwrap-in-tests = false
 allow-expect-in-tests = false
 allow-indexing-slicing-in-tests = false
 allow-useless-vec-in-tests = false
-
-# MSRV Tests
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (MSRV-aware lints)
 check-incompatible-msrv-in-tests = true
 
-# Const
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
-# Key lints affected: clippy::unwrap_used / expect_used behavior in const contexts (and related restriction behavior)
 allow-unwrap-in-consts = false
 allow-expect-in-consts = false
 suppress-restriction-lint-in-const = false
 
-# Imports
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
 warn-on-all-wildcard-imports = true
 allowed-wildcard-imports = []
 
-# SemVer
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
-# Key lints affected: clippy::avoid_breaking_exported_api (explicitly denied in Cargo.toml)
 avoid-breaking-exported-api = true
 
-# Ident Length
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
+doc-valid-idents = [".."]
+
+allowed-scripts = ["Latin"]
+
 min-ident-chars-threshold = 2
 allowed-idents-below-min-chars = ["id", "ok", ".."]
 
-# Naming Vars
-# Controlled by:
-#   - [workspace.lints.clippy] disallowed_names = "deny"
-# Key config: disallowed-names below
 single-char-binding-names-threshold = 2
 disallowed-names = ["e", "t", "tmp", ".."]
 
-# Doc Idents
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo (doc_markdown-related lints)
-doc-valid-idents = [".."]
-
-# Unicode Scripts
-# Controlled by: [workspace.lints.clippy] all/pedantic/nursery/cargo
-allowed-scripts = ["Latin"]
-
-# Banned Macros
-# Controlled by: [workspace.lints.clippy] disallowed_macros = "deny"
 disallowed-macros = [
     { path = "std::print", reason = "no stdout in libs; use tracing/log", allow-invalid = true },
     { path = "std::println", reason = "no stdout in libs; use tracing/log", allow-invalid = true },
     { path = "std::eprint", reason = "no stderr in libs; use tracing/log", allow-invalid = true },
     { path = "std::eprintln", reason = "no stderr in libs; use tracing/log", allow-invalid = true },
-    { path = "std::dbg", reason = "no dbg! in libs; use tracing + tests", allow-invalid = true },
 
+    { path = "std::dbg", reason = "no dbg! in libs; use tracing + tests", allow-invalid = true },
     { path = "core::panic", reason = "no panic! in libs; return structured errors", allow-invalid = true },
     { path = "core::todo", reason = "no todo! in libs", allow-invalid = true },
+
     { path = "core::unimplemented", reason = "no unimplemented! in libs", allow-invalid = true },
     { path = "core::unreachable", reason = "avoid unreachable! in libs; prove invariants or handle error", allow-invalid = true },
 ]
 
-# Banned Methods
-# Controlled by: [workspace.lints.clippy] disallowed_methods = "deny"
 disallowed-methods = [
     { path = "core::option::Option::unwrap", reason = "no unwrap in libs; use ?/match/if let", allow-invalid = true },
     { path = "core::result::Result::unwrap", reason = "no unwrap in libs; use ?/match", allow-invalid = true },
@@ -118,8 +73,6 @@ disallowed-methods = [
     { path = "std::boxed::Box::leak", reason = "no leaking memory", allow-invalid = true },
 ]
 
-# Banned Types
-# Controlled by: [workspace.lints.clippy] disallowed_types = "deny"
 disallowed-types = [
     { path = "std::cell::RefCell", reason = "avoid runtime borrow checks; prefer explicit design or safe sync primitives", allow-invalid = true },
     { path = "std::rc::Rc", reason = "prefer Arc in async/multi-thread contexts", replacement = "std::sync::Arc", allow-invalid = true },
