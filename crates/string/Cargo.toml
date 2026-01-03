@@ -13,3 +13,6 @@ categories = ["text-processing", "value-formatting", "parsing"]
 keywords = ["veeox", "string", "case", "veeox-tools"]
 
 [dependencies]
+
+[lints]
+workspace = true

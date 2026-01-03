@@ -13,3 +13,6 @@ categories = ["web-programming", "network-programming"]
 keywords = ["veeox", "api", "client", "veeox-tools"]
 
 [dependencies]
+
+[lints]
+workspace = true

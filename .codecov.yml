@@ -6,6 +6,20 @@ codecov:
 github_checks:
   annotations: true
 
+ignore:
+  - "**/target/**"
+  - "**/.git/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.venv/**"
+  - "**/.idea/**"
+  - "**/.vscode/**"
+  - "**/tests/**"
+  - "**/benches/**"
+  - "**/examples/**"
+  - "**/fuzz/**"
+
 coverage:
   precision: 2
   round: down
@@ -29,17 +43,3 @@ flags:
     paths:
       - crates/**
     carryforward: true
-
-ignore:
-  - "**/target/**"
-  - "**/.git/**"
-  - "**/node_modules/**"
-  - "**/dist/**"
-  - "**/build/**"
-  - "**/.venv/**"
-  - "**/.idea/**"
-  - "**/.vscode/**"
-  - "**/tests/**"
-  - "**/benches/**"
-  - "**/examples/**"
-  - "**/fuzz/**"

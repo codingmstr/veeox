@@ -175,6 +175,25 @@ jobs:
       - name: Run CI-STABLE
         run: bash ./scripts/run.sh ci-stable
 
+  # semver:
+    name: semver
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-SEMVER
+        run: bash ./scripts/run.sh ci-semver
+
   # fuzz:
   #   name: fuzz
   #   runs-on: ubuntu-latest
@@ -193,25 +212,6 @@ jobs:
 
   #     - name: CI FUZZ
   #       run: bash ./scripts/run.sh ci-fuzz --timeout 10 --len 5000
-
-  # semver:
-  #   name: semver
-  #   runs-on: ubuntu-latest
-
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v6
-
-  #     - name: Setup Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #       with:
-  #         toolchain: ${{ env.RUST_STABLE }}
-
-  #     - name: Setup cache
-  #       uses: Swatinem/rust-cache@v2
-
-  #     - name: Run CI-SEMVER
-  #       run: bash ./scripts/run.sh ci-semver
 
   # coverage:
   #   name: coverage
@@ -232,7 +232,7 @@ jobs:
   #     - name: Coverage
   #       env:
   #         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-  #       run: bash ./scripts/run.sh ci-coverage --upload --flags crates --version 11.2.6
+  #       run: bash ./scripts/run.sh ci-coverage --upload
 
   # publish:
   #   name: publish

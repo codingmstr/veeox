@@ -15,3 +15,6 @@ keywords = ["veeox", "web", "framework", "backend", "veeox-tools"]
 [dependencies]
 veeox-api = { workspace = true }
 veeox-string = { workspace = true }
+
+[lints]
+workspace = true

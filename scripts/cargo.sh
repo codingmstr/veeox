@@ -371,25 +371,6 @@ only_publish_pkgs () {
         | sort_uniq
 
 }
-clippy_flags () {
-
-    printf '%s\n' \
-        "-Dwarnings" \
-        "-Dclippy::all" \
-        "-Dclippy::correctness" \
-        "-Dclippy::suspicious" \
-        "-Dclippy::perf" \
-        "-Dclippy::style" \
-        "-Dclippy::complexity" \
-        "-Wclippy::pedantic" \
-        "-Wclippy::nursery" \
-        "-Wclippy::cargo" \
-        "-Dclippy::disallowed_methods" \
-        "-Dclippy::disallowed_names" \
-        "-Dclippy::disallowed_types" \
-        "-Dclippy::disallowed_macros"
-
-}
 codecov_upload () {
 
     local file="${1}"
@@ -1029,23 +1010,19 @@ cmd_clippy () {
     need_cmd cargo
 
     local has_sel=0
+    local a=""
+
     for a in "$@"; do
         case "${a}" in
-            -p|--package|--package=*|--manifest-path|--manifest-path=*|--workspace|--workspace=*|--all)
+            -p|--package|--package=*|--manifest-path|--manifest-path=*|--workspace|--workspace=*)
                 has_sel=1
                 break
             ;;
         esac
     done
 
-    local -a flags=()
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] || continue
-        flags+=( "${line}" )
-    done < <(clippy_flags)
-
     if (( has_sel )); then
-        cargo_run clippy --all-targets --all-features "$@" -- "${flags[@]}"
+        cargo_run clippy --all-targets --all-features "$@"
         return 0
     fi
 
@@ -1058,11 +1035,12 @@ cmd_clippy () {
     [[ ${#pkgs[@]} -gt 0 ]] || die "No publishable workspace crates found" 2
 
     local -a args=()
-    for p in "${pkgs[@]}"; do
+    local p=""
+    for p in "${pkgs[@]-}"; do
         args+=( -p "${p}" )
     done
 
-    cargo_run clippy "${args[@]}" --all-targets --all-features "$@" -- "${flags[@]}"
+    cargo_run clippy "${args[@]}" --all-targets --all-features "$@"
 
 }
 cmd_clippy_strict () {
@@ -1070,13 +1048,7 @@ cmd_clippy_strict () {
     cd_root
     need_cmd cargo
 
-    local -a flags=()
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] || continue
-        flags+=( "${line}" )
-    done < <(clippy_flags)
-
-    cargo_run clippy --workspace --all-targets --all-features "$@" -- "${flags[@]}"
+    cargo_run clippy --workspace --all-targets --all-features "$@"
 
 }
 cmd_bench () {
@@ -1414,11 +1386,13 @@ cmd_coverage () {
     need_cmd jq
 
     local upload=0
-    local codecov_flags=""
     local codecov_name=""
-    local codecov_version=""
     local codecov_token=""
+    local codecov_version=""
+    local codecov_flags=""
     local mode="lcov"
+
+    local -a want_pkgs=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1427,8 +1401,19 @@ cmd_coverage () {
                 shift
             ;;
             --mode)
-                mode="${2-}"
+                [[ -n "${2-}" ]] || die "Missing value for --mode" 2
+                mode="${2}"
+                shift 2
+            ;;
+            -p|--package)
+                [[ -n "${2-}" ]] || die "Missing value for ${1}" 2
+                want_pkgs+=( "${2}" )
                 shift 2 || true
+            ;;
+            --package=*)
+                [[ -n "${1#*=}" ]] || die "Missing value for --package" 2
+                want_pkgs+=( "${1#*=}" )
+                shift
             ;;
             --name)
                 codecov_name="${2-}"
@@ -1455,6 +1440,10 @@ cmd_coverage () {
             ;;
         esac
     done
+    case "${mode}" in
+        lcov|json|codecov) ;;
+        *) die "Invalid --mode: ${mode} (use: lcov|json|codecov)" 2 ;;
+    esac
 
     if ! cargo_run llvm-cov --version >/dev/null 2>&1; then
         log "cargo-llvm-cov is not installed."
@@ -1474,24 +1463,83 @@ cmd_coverage () {
     fi
 
     local -a pkgs=()
-    while IFS= read -r line; do pkgs+=( "${line}" ); done < <(only_publish_pkgs)
-    [[ ${#pkgs[@]} -gt 0 ]] || die "No publishable workspace crates found" 2
+
+    if [[ ${#want_pkgs[@]} -gt 0 ]]; then
+
+        local -a ws_pkgs=()
+        mapfile -t ws_pkgs < <(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].name')
+
+        local -A ws_set=()
+        local -A seen=()
+        local x="" p=""
+
+        for x in "${ws_pkgs[@]-}"; do
+            ws_set["${x}"]=1
+        done
+        for p in "${want_pkgs[@]-}"; do
+            [[ -n "${ws_set[${p}]-}" ]] || die "Unknown workspace package: ${p}" 2
+            [[ -n "${seen[${p}]-}" ]] && continue
+            seen["${p}"]=1
+            pkgs+=( "${p}" )
+        done
+
+        [[ ${#pkgs[@]} -gt 0 ]] || die "No packages selected" 2
+
+    else
+
+        while IFS= read -r line; do pkgs+=( "${line}" ); done < <(only_publish_pkgs)
+        [[ ${#pkgs[@]} -gt 0 ]] || die "No publishable workspace crates found" 2
+
+    fi
 
     local args=()
-    for p in "${pkgs[@]}"; do args+=( -p "${p}" ); done
+    local p=""
+
+    for p in "${pkgs[@]-}"; do
+        args+=( -p "${p}" )
+    done
 
     local out="${ROOT_DIR}/lcov.info"
-    [[ "${mode}" == "codecov" || "${mode}" == "json" ]] && out="${ROOT_DIR}/codecov.json"
 
-    if [[ "${mode}" == "codecov" || "${mode}" == "json" ]]; then
+    if [[ "${mode}" == "codecov" ]]; then
+
+        out="${ROOT_DIR}/codecov.json"
         cargo_run llvm-cov "${args[@]}" --all-targets --all-features --codecov --output-path "${out}" "$@"
+
+    elif [[ "${mode}" == "json" ]]; then
+
+        out="${ROOT_DIR}/coverage.json"
+        cargo_run llvm-cov "${args[@]}" --all-targets --all-features --json --output-path "${out}" "$@"
+
     else
+
         cargo_run llvm-cov "${args[@]}" --all-targets --all-features --lcov --output-path "${out}" "$@"
+
     fi
 
     if (( upload )); then
-        local job_name="${codecov_name:-coverage-${GITHUB_RUN_ID:-local}}"
-        codecov_upload "${out}" "${codecov_flags}" "${job_name}" "${codecov_version}" "${codecov_token}"
+
+        if [[ -z "${codecov_name}" ]]; then
+
+            if [[ ${#pkgs[@]} -eq 1 ]]; then
+                codecov_name="coverage-${pkgs[0]}"
+            else
+                codecov_name="coverage-${GITHUB_RUN_ID:-local}"
+            fi
+
+        fi
+        if [[ -z "${codecov_flags}" ]]; then
+
+            if [[ ${#pkgs[@]} -eq 1 ]]; then
+                codecov_flags="${pkgs[0]}"
+            else
+                codecov_flags="crates"
+            fi
+
+        fi
+
+        codecov_upload "${out}" "${codecov_flags}" "${codecov_name}" "${codecov_version}" "${codecov_token}"
+
     fi
 
     log "OK -> ${out}"
