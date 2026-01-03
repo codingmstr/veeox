@@ -1,3 +1,8 @@
+//! Veeox String crate.
+//!
+//! Public String surface for the Veeox workspace.
+//! # veeox-api
+
 pub struct Str;
 
 impl Str {

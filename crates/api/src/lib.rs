@@ -1,3 +1,7 @@
+//! Veeox API crate.
+//!
+//! Public API surface for the Veeox workspace.
+
 pub struct Api;
 
 impl Api {

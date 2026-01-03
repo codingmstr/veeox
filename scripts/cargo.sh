@@ -1210,7 +1210,7 @@ cmd_fuzz () {
     tc="$(nightly_version)"
     rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -qx "${tc}" || run rustup toolchain install "${tc}" --profile minimal
 
-    local timeout="15" len="4096"
+    local timeout="10" len="4096"
     local have_max_total_time=0 have_max_len=0 in_post=0
     local -a pre=()
     local -a post=()

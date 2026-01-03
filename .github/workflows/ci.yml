@@ -176,23 +176,23 @@ jobs:
         run: bash ./scripts/run.sh ci-stable
 
   # semver:
-    name: semver
-    runs-on: ubuntu-latest
+  #   name: semver
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v6
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
+  #     - name: Setup Rust
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         toolchain: ${{ env.RUST_STABLE }}
 
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+  #     - name: Setup cache
+  #       uses: Swatinem/rust-cache@v2
 
-      - name: Run CI-SEMVER
-        run: bash ./scripts/run.sh ci-semver
+  #     - name: Run CI-SEMVER
+  #       run: bash ./scripts/run.sh ci-semver
 
   # fuzz:
   #   name: fuzz

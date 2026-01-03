@@ -1,3 +1,7 @@
+//! Veeox Web crate.
+//!
+//! Public Web surface for the Veeox workspace.
+
 pub use veeox_api::Api;
 pub use veeox_string::Str;
 
