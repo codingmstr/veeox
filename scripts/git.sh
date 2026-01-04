@@ -503,7 +503,7 @@ help_git () {
         new-release <tag> [options]
         remove-release <tag> [options]
 
-    Env (defaults):
+    Env:
         GITHUB_AUTH        auto|ssh|http
         GITHUB_SSH_KEY     path to ssh key
         GITHUB_TOKEN       token for http auth
