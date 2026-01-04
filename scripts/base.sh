@@ -126,10 +126,11 @@ has () {
 }
 is_ci () {
 
-    local v=""
+    local v="${CI:-}"
 
-    v="${CI:-}"
-    [[ "${v}" =~ ^(1|true|yes)$ ]] && return 0
+    case "${v}" in
+        1|true|True|TRUE|yes|Yes|YES) return 0 ;;
+    esac
 
     [[ -n "${GITHUB_ACTIONS:-}" ]] && return 0
     [[ -n "${GITLAB_CI:-}" ]] && return 0
@@ -220,30 +221,43 @@ open_path () {
 }
 on_err () {
 
-    local ec=$?
+    local ec="${1:-$?}"
     local src="${BASH_SOURCE[1]-${BASH_SOURCE[0]}}"
     local line="${BASH_LINENO[0]-0}"
     local cmd="${BASH_COMMAND-}"
 
+    case "${cmd}" in
+        dispatch\ *|dispatch)
+            return "${ec}"
+        ;;
+    esac
+
     elog "Error: ${src}:${line}"
 
     if (( VERBOSE_ENV )); then
-
-        if [[ "${cmd}" == *x-access-token:*@* ]]; then
-            local pre="${cmd%%x-access-token:*}x-access-token:"
-            local rest="${cmd#*x-access-token:}"
-            local after="${rest#*@}"
-            cmd="${pre}***@${after}"
-        fi
-
         elog "Command: ${cmd}"
-
-    fi
-    if [[ $- == *i* ]]; then
-        return "${ec}"
     fi
 
+    [[ $- == *i* ]] && return "${ec}"
     exit "${ec}"
+
+}
+uc_first () {
+
+    local s="${1:-}"
+    [[ -n "${s}" ]] || { printf '%s' ""; return 0; }
+
+    printf '%s%s' "$(printf '%s' "${s:0:1}" | tr '[:lower:]' '[:upper:]')" "${s:1}"
+
+}
+mkdir_p () {
+
+    mkdir -p -- "$@" 2>/dev/null || mkdir -p "$@"
+
+}
+ln_sf () {
+
+    ln -sf -- "${1}" "${2}" 2>/dev/null || ln -sf "${1}" "${2}"
 
 }
 abs_dir () {
@@ -266,22 +280,107 @@ detect_os () {
     esac
 
 }
-uc_first () {
+detect_rc () {
 
-    local s="${1:-}"
-    [[ -n "${s}" ]] || { printf '%s' ""; return 0; }
+    local shell="${SHELL:-}" home="${HOME:-}" kind="sh"
+    local os="$(detect_os)"
 
-    printf '%s%s' "$(printf '%s' "${s:0:1}" | tr '[:lower:]' '[:upper:]')" "${s:1}"
+    if [[ -z "${home}" ]]; then
+        home="$(cd ~ 2>/dev/null && pwd || printf '%s' ".")"
+    fi
+
+    if [[ -n "${ZSH_VERSION:-}" || "${shell}" == */zsh ]]; then
+        kind="zsh"
+    elif [[ -n "${BASH_VERSION:-}" || "${shell}" == */bash ]]; then
+        kind="bash"
+    elif [[ -n "${FISH_VERSION:-}" || "${shell}" == */fish ]]; then
+        kind="fish"
+    elif [[ "${shell}" == */ksh ]]; then
+        kind="ksh"
+    fi
+
+    if [[ "${kind}" == "zsh" ]]; then
+        printf '%s\n' "${home}/.zshrc"
+        return 0
+    fi
+    if [[ "${kind}" == "fish" ]]; then
+        printf '%s\n' "${home}/.config/fish/config.fish"
+        return 0
+    fi
+    if [[ "${kind}" == "ksh" ]]; then
+        printf '%s\n' "${home}/.kshrc"
+        return 0
+    fi
+    if [[ "${kind}" == "bash" ]]; then
+
+        local bashrc="${home}/.bashrc"
+
+        if [[ "${os}" == "linux" ]]; then
+            printf '%s\n' "${bashrc}"
+            return 0
+        fi
+        if [[ "${os}" == "win" ]]; then
+            printf '%s\n' "${bashrc}"
+            return 0
+        fi
+        if [[ "${os}" == "mac" ]]; then
+
+            local bash_profile="${home}/.bash_profile"
+            local profile="${home}/.profile"
+            local login="${bash_profile}"
+
+            [[ -f "${bash_profile}" ]] && login="${bash_profile}"
+            [[ -f "${bash_profile}" ]] || { [[ -f "${profile}" ]] && login="${profile}"; }
+
+            if [[ -f "${login}" && -f "${bashrc}" ]]; then
+
+                local line=""
+                while IFS= read -r line || [[ -n "${line}" ]]; do
+
+                    line="${line%%#*}"
+
+                    case "${line}" in
+                        *".bashrc"*)
+                            case "${line}" in
+                                *"source "*".bashrc"*|*". "*".bashrc"*) printf '%s\n' "${bashrc}"; return 0 ;;
+                            esac
+                        ;;
+                    esac
+
+                done < "${login}" 2>/dev/null || true
+
+            fi
+
+            printf '%s\n' "${login}"
+            return 0
+
+        fi
+
+        printf '%s\n' "${bashrc}"
+        return 0
+
+    fi
+
+    printf '%s\n' "${home}/.profile"
 
 }
-mkdir_p () {
+is_valid_alias () {
 
-    mkdir -p -- "$@" 2>/dev/null || mkdir -p "$@"
+    local a="${1:-}"
+
+    [[ -n "${a}" ]] || return 1
+    [[ "${a}" != *"/"* && "${a}" != *"\\"* ]] || return 1
+    [[ "${a}" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
 
 }
-ln_sf () {
+is_text_file () {
 
-    ln -sf -- "${1}" "${2}" 2>/dev/null || ln -sf "${1}" "${2}"
+    local file="${1}"
+
+    [[ -f "${file}" ]] || return 1
+    [[ -s "${file}" ]] || return 0
+
+    LC_ALL=C grep -Iq . -- "${file}" 2>/dev/null
 
 }
 dir_exists () {
@@ -1049,8 +1148,7 @@ ensure_pkg () {
     local -a wants=( "$@" )
     (( ${#wants[@]} )) || die "ensure_pkg: missing package name(s)" 2
 
-    local os=""
-    os="$(detect_os)"
+    local os="$(detect_os)"
 
     case "${os}" in
         linux) ensure_linux_pkg "${wants[@]}" ;;
@@ -1058,6 +1156,194 @@ ensure_pkg () {
         win)   ensure_win_pkg "${wants[@]}" ;;
         *)     die "Unsupported OS: ${os}" 2 ;;
     esac
+
+}
+replace () {
+
+    ensure_pkg perl grep
+
+    local file="${1:-}"
+    local old="${2:-}"
+    local new="${3-}"
+
+    [[ -n "${file}" ]] || die "replace: missing file" 2
+    [[ -f "${file}" ]] || die "replace: file not found: ${file}" 2
+    [[ -n "${old}"  ]] || die "replace: missing old_word" 2
+    [[ -L "${file}" ]] && return 2
+
+    is_text_file "${file}" || return 2
+    LC_ALL=C grep -Fq -- "${old}" "${file}" 2>/dev/null || return 1
+
+    perl -i -pe '
+        BEGIN {
+            $old = $ARGV[0];
+            $new = $ARGV[1];
+            shift @ARGV; shift @ARGV;
+
+            $new =~ s/\\/\\\\/g;
+            $new =~ s/\$/\\\$/g;
+            $new =~ s/\@/\\\@/g;
+        }
+        s/\Q$old\E/$new/g;
+    ' "${old}" "${new}" "${file}" || die "replace: failed: ${file}" 2
+
+    log "${file}: (${old}) -> (${new})"
+    return 0
+
+}
+replace_all () {
+
+    ensure_pkg find
+
+    local ignore_arg=""
+    local -a ignore_raw=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -i|--ignore)
+                ignore_arg="${2-}"
+                [[ -n "${ignore_arg}" ]] || die "replace_all: missing value for --ignore" 2
+                ignore_raw+=( "${ignore_arg}" )
+                shift 2 || true
+            ;;
+            --)
+                shift
+                break
+            ;;
+            -*)
+                die "replace_all: unknown option: $1" 2
+            ;;
+            *)
+                break
+            ;;
+        esac
+    done
+
+    local old="${1:-}"
+    local new="${2-}"
+    local root="${3:-.}"
+
+    [[ -n "${old}" ]] || die "replace_all: missing old_word" 2
+    [[ -e "${root}" ]] || die "replace_all: path not found: ${root}" 2
+
+    local total=0 changed=0 missed=0 skipped=0 failed=0
+    local file="" rc=0
+
+    if [[ -f "${root}" ]]; then
+
+        total=1
+
+        replace "${root}" "${old}" "${new}"
+        rc=$?
+
+        case "${rc}" in
+            0) changed=1 ;;
+            1) missed=1 ;;
+            2) skipped=1 ;;
+            *) failed=1 ;;
+        esac
+
+        log ""
+        log "replace_all: total=${total} changed=${changed} missed=${missed} skipped=${skipped} failed=${failed}"
+
+        (( failed == 0 )) || return 2
+        (( changed > 0 )) && return 0 || return 1
+
+    fi
+
+    local root_clean="${root%/}"
+    [[ -n "${root_clean}" ]] || root_clean="/"
+
+    local s="" part="" trimmed=""
+    local -a parts=()
+    local -a ignore_list=(".git" "target" "node_modules" "dist" "build" ".next" ".venv" "venv" "__pycache__")
+
+    for s in "${ignore_raw[@]-}"; do
+
+        IFS=',' read -r -a parts <<< "${s}"
+
+        for part in "${parts[@]-}"; do
+
+            trimmed="${part#"${part%%[![:space:]]*}"}"
+            trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+            [[ -n "${trimmed}" ]] || continue
+
+            ignore_list+=( "${trimmed}" )
+
+        done
+
+    done
+
+    local -a prune_name=() prune_root=() prune_path=()
+    local -a excl_name=()  excl_root=()  excl_path=()
+    local item="" p=""
+
+    for item in "${ignore_list[@]-}"; do
+
+        if [[ "${item}" == /* ]]; then
+
+            p="${item#/}"
+            [[ -n "${p}" ]] || continue
+
+            prune_root+=( "${root_clean}/${p}" )
+            excl_root+=( "${root_clean}/${p}" )
+
+        elif [[ "${item}" == */* ]]; then
+
+            prune_path+=( "*/${item}" )
+            excl_path+=( "*/${item}" )
+
+        else
+
+            prune_name+=( "${item}" )
+            excl_name+=( "${item}" )
+
+        fi
+
+    done
+
+    local -a find_cmd=( find "${root_clean}" )
+    local -a dtests=()
+    local x=""
+
+    for x in "${prune_name[@]-}"; do dtests+=( -name "${x}" -o ); done
+    for x in "${prune_root[@]-}"; do dtests+=( -path "${x}" -o ); done
+    for x in "${prune_path[@]-}"; do dtests+=( -path "${x}" -o ); done
+
+    if (( ${#dtests[@]} > 0 )); then
+        unset "dtests[${#dtests[@]}-1]"
+        find_cmd+=( -type d \( "${dtests[@]}" \) -prune -o )
+    fi
+
+    find_cmd+=( -type f )
+
+    for x in "${excl_name[@]-}"; do find_cmd+=( ! -name "${x}" ); done
+    for x in "${excl_root[@]-}"; do find_cmd+=( ! -path "${x}" ); done
+    for x in "${excl_path[@]-}"; do find_cmd+=( ! -path "${x}" ); done
+
+    find_cmd+=( -print0 )
+
+    while IFS= read -r -d '' file; do
+
+        (( total++ ))
+
+        replace "${file}" "${old}" "${new}"
+        rc=$?
+
+        case "${rc}" in
+            0) (( changed++ )) ;;
+            1) (( missed++ )) ;;
+            2) (( skipped++ )) ;;
+            *) (( failed++ )) ;;
+        esac
+
+    done < <("${find_cmd[@]}" 2>/dev/null)
+
+    log ""
+    log "replace_all: total=${total} changed=${changed} missed=${missed} skipped=${skipped} failed=${failed}"
+
+    (( failed == 0 )) || return 2
+    (( changed > 0 )) && return 0 || return 1
 
 }
 should_skip () {
@@ -1219,7 +1505,11 @@ dispatch () {
     fi
 
     local fn="cmd_${cmd//-/_}"
-    declare -F "${fn}" >/dev/null 2>&1 && { "${fn}" "$@"; return $?; }
+
+    if declare -F "${fn}" >/dev/null 2>&1; then
+        "${fn}" "$@"
+        return $?
+    fi
 
     log "Unknown command: ${cmd}"
     log
@@ -1229,32 +1519,20 @@ dispatch () {
 }
 boot () {
 
-    local old_trap=""
-    old_trap="$(trap -p ERR 2>/dev/null || true)"
+    local old_trap="$(trap -p ERR 2>/dev/null || true)"
+    trap 'on_err "$?"' ERR
 
-    trap on_err ERR
-
-    source_loader || {
-
-        local ec=$?
-
-        if [[ -n "${old_trap}" ]]; then
-            eval "${old_trap}"
-        else
-            trap - ERR
-        fi
-
-        return "${ec}"
-
-    }
-
+    source_loader
     parse "$@"
 
     local ec=0
+
     if [[ ${ARGS[0]+x} ]]; then
-        dispatch "${CMD}" "${ARGS[@]}" || ec=$?
+        dispatch "${CMD}" "${ARGS[@]}"
+        ec=$?
     else
-        dispatch "${CMD}" || ec=$?
+        dispatch "${CMD}"
+        ec=$?
     fi
 
     if [[ -n "${old_trap}" ]]; then
