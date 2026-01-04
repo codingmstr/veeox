@@ -601,7 +601,7 @@ cmd_changelog () {
 
         if [[ "${top}" != "# Changelog" ]]; then
             { printf '%s\n\n' "# Changelog"; cat "${file}"; } > "${tmp}"
-            mv -f -- "${tmp}" "${file}"
+            mv -f "${tmp}" "${file}"
             tmp="$(mktemp)" || die "changelog: mktemp failed" 2
         fi
 
@@ -629,7 +629,7 @@ cmd_changelog () {
 
     fi
 
-    mv -f -- "${tmp}" "${file}"
+    mv -f "${tmp}" "${file}"
     log "changelog: updated ${file}"
 
 }
@@ -1028,7 +1028,7 @@ cmd_all_branches () {
 
     if (( include_remote )); then
         git_require_remote "${remote}"
-        git fetch --prune "${remote}" >/dev/null 2>&1 || true
+        GIT_TERMINAL_PROMPT=0 git fetch --prune "${remote}" >/dev/null 2>&1 || true
 
         git for-each-ref \
             --format='%(refname:short)' \
@@ -1066,7 +1066,7 @@ cmd_all_tags () {
 
     if (( include_remote )); then
         git_require_remote "${remote}"
-        git fetch --prune --tags "${remote}" >/dev/null 2>&1 || true
+        GIT_TERMINAL_PROMPT=0 git fetch --prune --tags "${remote}" >/dev/null 2>&1 || true
     fi
 
     git tag --list

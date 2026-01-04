@@ -479,7 +479,6 @@ ensure_linux_pkg () {
     local -a check_want=()
     local -a check_mode=()
     local -a check_pkg=()
-    local -a prefer_gnu=()
 
     local pkg_installed=0
 
@@ -502,8 +501,6 @@ ensure_linux_pkg () {
                 is_gnu_prefer=1
             ;;
         esac
-
-        (( is_gnu_prefer )) && prefer_gnu+=( "${want}" )
 
         case "${want}" in
             jq)       pkg="jq" ;;
