@@ -1413,7 +1413,7 @@ doc_render () {
     printf '%s\n' \
         '' \
         'Usage:' \
-        '    vx [--yes] [--quiet] [--verbose] <cmd> [args...]' \
+        '    __alias__ [--yes] [--quiet] [--verbose] <cmd> [args...]' \
         '' \
         'Global:' \
         '    --yes,    -y     Non-interactive (assume yes)' \

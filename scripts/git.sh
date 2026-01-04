@@ -83,7 +83,7 @@ git_require_remote () {
     local remote="${1:-origin}"
 
     git remote get-url "${remote}" >/dev/null 2>&1 || \
-        die "Remote not found: ${remote}. Run: vx git-init <user/repo>  (or: git remote add ${remote} <url>)" 2
+        die "Remote not found: ${remote}. Run: init <user/repo>  (or: git remote add ${remote} <url>)" 2
 
 }
 git_require_identity () {
@@ -543,9 +543,9 @@ help_git () {
         --token <value>             Token value (http mode)
         --token-env <VAR>           Token env var name (default: GITHUB_TOKEN)
 
-        -t, --tag <tag>             Tag name (auto normalizes to vX.Y.Z if semver)
+        -t, --tag <tag>             Tag name (auto normalizes to va.b.c if semver)
         --release[=<tag>]           Same as --tag; if omitted uses v<root Cargo.toml version>
-        -ch, --changelog            Prepend CHANGELOG entry (requires tag/release)
+        -ch, --log, --changelog            Prepend CHANGELOG entry (requires tag/release)
 
     changelog <tag> [message]
         Write changelog block at top (idempotent, ensures '# Changelog').
@@ -652,14 +652,14 @@ cmd_init () {
             --repo)         shift || true; repo="${1:-}";   [[ -n "${repo}" ]]   || die "Error: --repo requires a value" 2;   shift || true ;;
             -b|--branch)    shift || true; branch="${1:-}"; [[ -n "${branch}" ]] || die "Error: --branch requires a value" 2; shift || true ;;
             -r|--remote)    shift || true; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift || true ;;
-            -h|--help)      log "Usage: git-init <url|user/repo> [--branch main] [--remote origin] [--auth ssh|http|auto]"; return 0 ;;
+            -h|--help)      log "Usage: init <url|user/repo> [--branch main] [--remote origin] [--auth ssh|http|auto]"; return 0 ;;
             --)             shift || true; break ;;
             -*)             die "Unknown arg: $1" 2 ;;
             *)              [[ -z "${repo}" ]] && repo="$1"; shift || true; break ;;
         esac
     done
 
-    [[ -n "${repo}" ]] || die "Usage: git-init <url|user/repo> [--branch main] [--remote origin] [--auth ssh|http|auto]" 2
+    [[ -n "${repo}" ]] || die "Usage: init <url|user/repo> [--branch main] [--remote origin] [--auth ssh|http|auto]" 2
 
     case "${auth}" in
         ssh|http|auto) ;;
@@ -780,7 +780,7 @@ cmd_push () {
             -b|--branch)     shift; branch="${1:-}"; [[ -n "${branch}" ]] || die "Missing branch" 2; shift ;;
             -m|--message)    shift; msg="${1:-}";    [[ -n "${msg}" ]]    || die "Missing message" 2; shift ;;
             -f|--force)      force=1; shift ;;
-            -ch|--changelog) changelog=1; shift ;;
+            -ch|--log|--changelog) changelog=1; shift ;;
             -t|--tag|--release)
                 shift || true
                 if [[ -n "${1:-}" && "${1:-}" != -* ]]; then
@@ -814,13 +814,11 @@ cmd_push () {
         branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
         [[ -n "${branch}" ]] || branch="main"
     fi
-
     if [[ "${tag}" == "auto" ]]; then
         local v=""
         v="$(git_root_version)"
         tag="v${v}"
     fi
-
     if [[ -n "${tag}" ]]; then
         tag="$(git_norm_tag "${tag}")"
         [[ "${msg}" != "done" ]] || msg="Track ${tag} release."
@@ -832,7 +830,7 @@ cmd_push () {
 
     if git_cmd "${kind}" "${ssh_cmd}" diff --cached --quiet >/dev/null 2>&1; then
 
-        git_has_commit || die "Nothing to push: no commits yet. Make changes then run: vx push" 2
+        git_has_commit || die "Nothing to push: no commits yet. Make changes then run: push" 2
 
     else
 

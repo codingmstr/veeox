@@ -699,7 +699,7 @@ cmd_new () {
         esac
     done
 
-    [[ -n "${name}" ]] || die "Usage: cmd_new [--lib|--bin] [--dir <dir>] [--no-workspace] <name> [-- <cargo new args>]" 2
+    [[ -n "${name}" ]] || die "Usage: new [--lib|--bin] [--dir <dir>] [--no-workspace] <name> [-- <cargo new args>]" 2
     [[ "${name}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid crate name: ${name}" 2
 
     local path="${dir}/${name}"
@@ -1347,7 +1347,7 @@ cmd_semver () {
             baseline="$(
                 git tag --list 'v*' --sort=-v:refname |
                 grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
-                grep -vx "${cur}" |
+                grep -F -x -v -- "${cur}" |
                 head -n 1 || true
             )"
 
@@ -2457,11 +2457,6 @@ cmd_yank () {
             --undo|--restore)
                 undo=1
                 shift || true
-            ;;
-            -h|--help)
-                log "Usage:"
-                log "    yank -p <crate> --version <x.y.z> [--undo] [--token <...>] [-- <extra cargo args>]"
-                return 0
             ;;
             --)
                 shift || true
