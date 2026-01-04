@@ -1,0 +1,45 @@
+comment: false
+
+codecov:
+  require_ci_to_pass: true
+
+github_checks:
+  annotations: true
+
+ignore:
+  - "**/target/**"
+  - "**/.git/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.venv/**"
+  - "**/.idea/**"
+  - "**/.vscode/**"
+  - "**/tests/**"
+  - "**/benches/**"
+  - "**/examples/**"
+  - "**/fuzz/**"
+
+coverage:
+  precision: 2
+  round: down
+  range: "70..95"
+
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 1%
+        informational: false
+
+    patch:
+      default:
+        target: 90%
+        threshold: 1%
+        informational: false
+
+flags:
+  crates:
+    paths:
+      - crates/**
+    carryforward: true
