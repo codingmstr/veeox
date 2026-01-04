@@ -37,7 +37,7 @@ git_cmd () {
 }
 git_repo_guard () {
 
-    need_cmd git
+    ensure_pkg git
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "Not a git repository." 2
 
 }
@@ -415,7 +415,7 @@ git_set_default_branch () {
 }
 git_guard_no_unborn_nested_repos () {
 
-    need_cmd find
+    ensure_pkg find
 
     local root="${1:-.}"
     local d="" repo=""
@@ -435,7 +435,7 @@ git_guard_no_unborn_nested_repos () {
 }
 git_root_version () {
 
-    need_cmd awk
+    ensure_pkg awk
 
     local v="" toml="${ROOT_DIR}/Cargo.toml"
     [[ -f "${toml}" ]] || die "Can't detect version: missing file: ${toml}" 2
@@ -569,11 +569,7 @@ OUT
 cmd_changelog () {
 
     cd_root
-    need_cmd grep
-    need_cmd mktemp
-    need_cmd mv
-    need_cmd date
-    need_cmd tail
+    ensure_pkg grep mktemp mv date tail
 
     local tag="${1:-unreleased}"
     local msg="${2:-}"
@@ -641,7 +637,7 @@ cmd_changelog () {
 cmd_init () {
 
     cd_root
-    need_cmd git
+    ensure_pkg git
 
     local repo=""
     local branch="main"
