@@ -467,45 +467,102 @@ git_root_version () {
     printf '%s\n' "${v}"
 
 }
+git_default_branch () {
+
+    local remote="${1:-origin}"
+    local auth="${2:-auto}"
+    local key="${3:-}"
+    local token="${4:-}"
+    local token_env="${5:-${GITHUB_TOKEN_ENV}}"
+
+    git_repo_guard
+    git_require_remote "${remote}"
+
+    local b=""
+    b="$(git symbolic-ref -q --short "refs/remotes/${remote}/HEAD" 2>/dev/null || true)"
+    if [[ -n "${b}" ]]; then
+        printf '%s\n' "${b#${remote}/}"
+        return 0
+    fi
+
+    local kind="" target="" safe="" ssh_cmd=""
+    IFS=$'\t' read -r kind target safe ssh_cmd < <(
+        git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}"
+    )
+
+    local line="" sym=""
+    while IFS= read -r line; do
+        case "${line}" in
+            "ref: refs/heads/"*" HEAD")
+                sym="${line#ref: }"
+                sym="${sym% HEAD}"
+                break
+            ;;
+        esac
+    done < <(git_cmd "${kind}" "${ssh_cmd}" ls-remote --symref "${target}" HEAD 2>/dev/null || true)
+
+    if [[ -n "${sym}" ]]; then
+        printf '%s\n' "${sym#refs/heads/}"
+        return 0
+    fi
+
+    local def=""
+    def="$(git config --get init.defaultBranch 2>/dev/null || true)"
+    if [[ -n "${def}" ]] && git show-ref --verify --quiet "refs/heads/${def}"; then
+        printf '%s\n' "${def}"
+        return 0
+    fi
+
+    for def in main master trunk production prod; do
+        git show-ref --verify --quiet "refs/heads/${def}" && { printf '%s\n' "${def}"; return 0; }
+    done
+
+    def="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [[ -n "${def}" ]] && { printf '%s\n' "${def}"; return 0; }
+
+    return 1
+
+}
 help_git () {
 
     cat <<'OUT'
-    Git:
-        init <url|user/repo> [--branch main] [--remote origin] [--auth ssh|http|auto]
-            Init repo (if missing), set default branch, and set remote.
+    init <url|user/repo> [--branch main] [--remote origin] [--auth ssh|http|auto]
+        Init repo (if missing), set default branch, and set remote.
 
-        remote [--remote origin]
-            Show remote url (redacted) + protocol.
+    remote [--remote origin]
+        Show remote url (redacted) + protocol.
 
-        push [options]
-            Add/commit + push branch. Optional: tag release + changelog.
+    push [options]
+        Add/commit + push branch. Optional: tag release + changelog.
 
-            -r, --remote <name>         Default: origin
-            -b, --branch <name>         Default: current (fallback: main)
-            -m, --message <msg>         Commit/tag message
-            -f, --force                 Force push (with lease) + overwrite tag
-            --auth <auto|ssh|http>      Default: auto
-            --key <path>                SSH key path
-            --token <value>             Token value (http mode)
-            --token-env <VAR>           Token env var name (default: GITHUB_TOKEN)
+        -r, --remote <name>         Default: origin
+        -b, --branch <name>         Default: current (fallback: main)
+        -m, --message <msg>         Commit/tag message
+        -f, --force                 Force push (with lease) + overwrite tag
+        --auth <auto|ssh|http>      Default: auto
+        --key <path>                SSH key path
+        --token <value>             Token value (http mode)
+        --token-env <VAR>           Token env var name (default: GITHUB_TOKEN)
 
-            -t, --tag <tag>             Tag name (auto normalizes to vX.Y.Z if semver)
-            --release[=<tag>]           Same as --tag; if omitted uses v<root Cargo.toml version>
-            -ch, --changelog            Prepend CHANGELOG entry (requires tag/release)
+        -t, --tag <tag>             Tag name (auto normalizes to vX.Y.Z if semver)
+        --release[=<tag>]           Same as --tag; if omitted uses v<root Cargo.toml version>
+        -ch, --changelog            Prepend CHANGELOG entry (requires tag/release)
 
-        changelog <tag> [message]
-            Write changelog block at top (idempotent, ensures '# Changelog').
+    changelog <tag> [message]
+        Write changelog block at top (idempotent, ensures '# Changelog').
 
-        new-branch <name> [options]
-        remove-branch <name> [options]
+    default-branch [options]
+    current-branch [options]
+    switch-branch [options]
 
-        new-release <tag> [options]
-        remove-release <tag> [options]
+    all-branches [options]
+    all-tags [options]
 
-    Env:
-        GITHUB_AUTH        auto|ssh|http
-        GITHUB_SSH_KEY     path to ssh key
-        GITHUB_TOKEN       token for http auth
+    new-release <tag> [options]
+    remove-release <tag> [options]
+
+    new-branch <name> [options]
+    remove-branch <name> [options]
 OUT
 }
 
@@ -533,7 +590,7 @@ cmd_changelog () {
     [[ "${tag}" =~ ^v[0-9] ]] && tag="${tag#v}"
     header="## 💥 ${tag} ( ${day} )"
 
-    has_cmd git && sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
+    has git && sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
     if [[ -n "${sha}" ]]; then
         block="${header}"$'\n\n'"- ${msg} ( commit: ${sha} )"$'\n'
     else
@@ -695,228 +752,6 @@ cmd_remote () {
     fi
 
     log "Protocol: unknown"
-
-}
-cmd_current_branch () {
-
-    cd_root
-    git_repo_guard
-
-    local b=""
-    b="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-
-    [[ -n "${b}" ]] || die "No branch checked out." 2
-
-    log "${b}"
-
-}
-cmd_switch_branch () {
-
-    cd_root
-    git_repo_guard
-
-    local remote="origin"
-    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
-    [[ -n "${auth}" ]] || auth="auto"
-
-    local key=""
-    local token=""
-    local token_env="${GITHUB_TOKEN_ENV}"
-
-    local b=""
-    local create=0
-    local track=1
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -r|--remote)   shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
-            --auth)        shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
-            --key)         shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
-            --token)       shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;   shift ;;
-            --token-env)   shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -c|--create)   create=1; shift ;;
-            --no-track)    track=0; shift ;;
-            -h|--help)
-                log "Usage: switch-branch <branch> [--create|-c] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>] [--no-track]"
-                log "Behavior:"
-                log "  - If branch exists locally: switch to it."
-                log "  - Else if exists on remote and tracking enabled: create local tracking branch."
-                log "  - Else: create new local branch only if --create is set, otherwise error."
-                return 0
-            ;;
-            --) shift || true; break ;;
-            -*) die "Unknown arg: $1" 2 ;;
-            *)  b="$1"; shift || true; break ;;
-        esac
-    done
-
-    [[ -n "${b}" ]] || die "Usage: switch-branch <branch> ..." 2
-    [[ "${b}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "Invalid branch name: ${b}" 2
-
-    if git show-ref --verify --quiet "refs/heads/${b}"; then
-        git_switch "${b}"
-        return 0
-    fi
-
-    local kind="" target="" safe="" ssh_cmd=""
-    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
-    [[ -n "${kind}" && -n "${target}" ]] || die "Failed to resolve git auth for remote '${remote}'." 2
-
-    if (( track )) && git_remote_has_branch "${kind}" "${ssh_cmd}" "${target}" "${b}"; then
-
-        git_cmd "${kind}" "${ssh_cmd}" fetch "${target}" \
-            "refs/heads/${b}:refs/remotes/${remote}/${b}" >/dev/null 2>&1 || true
-
-        git_switch -c "${b}" --track "${remote}/${b}"
-        return 0
-
-    fi
-
-    (( create )) || die "Branch not found: ${b}. Use --create to create locally, or ensure it exists on remote." 2
-
-    git_switch -c "${b}"
-
-}
-cmd_new_branch () {
-
-    cd_root
-    git_repo_guard
-
-    local remote="origin"
-    local key="" token="" b="" token_env="${GITHUB_TOKEN_ENV}"
-    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
-
-    [[ -n "${auth}" ]] || auth="auto"
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -r|--remote)    shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
-            --auth)         shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
-            --key)          shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
-            --token)        shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
-            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -h|--help)      log "Usage: new-branch <branch> [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
-            --)             shift || true; break ;;
-            -*)             die "Unknown arg: $1" 2 ;;
-            *)              b="$1"; shift || true; break ;;
-        esac
-    done
-
-    [[ -n "${b}" ]] || die "Usage: new-branch <branch> ..." 2
-
-    git_require_remote "${remote}"
-
-    local kind="" target="" safe="" ssh_cmd=""
-    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
-
-    if git show-ref --verify --quiet "refs/heads/${b}"; then
-        git_switch "${b}"
-        return 0
-    fi
-
-    if git_remote_has_branch "${kind}" "${ssh_cmd}" "${target}" "${b}"; then
-
-        git_cmd "${kind}" "${ssh_cmd}" fetch "${target}" "refs/heads/${b}:refs/remotes/${remote}/${b}" >/dev/null 2>&1 || true
-        git_switch -c "${b}" --track "${remote}/${b}"
-        return 0
-
-    fi
-
-    git_switch -c "${b}"
-
-}
-cmd_remove_branch () {
-
-    cd_root
-    git_repo_guard
-
-    local remote="origin"
-    local key="" token="" b="" token_env="${GITHUB_TOKEN_ENV}"
-    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
-
-    [[ -n "${auth}" ]] || auth="auto"
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -r|--remote)    shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
-            --auth)         shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
-            --key)          shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
-            --token)        shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
-            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -h|--help)      log "Usage: remove-branch <branch> [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
-            --)             shift || true; break ;;
-            -*)             die "Unknown arg: $1" 2 ;;
-            *)              b="$1"; shift || true; break ;;
-        esac
-    done
-
-    [[ -n "${b}" ]] || die "Usage: remove-branch <branch> ..." 2
-
-    git_require_remote "${remote}"
-
-    local cur=""
-    cur="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-    [[ "${cur}" != "${b}" ]] || die "Can't delete current branch: ${b}" 2
-
-    confirm "Delete branch '${b}' locally and on '${remote}'?" || return 0
-
-    run git branch -D "${b}" >/dev/null 2>&1 || true
-
-    local kind="" target="" safe="" ssh_cmd=""
-    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
-
-    git_cmd "${kind}" "${ssh_cmd}" push "${target}" --delete "${b}" >/dev/null 2>&1 || true
-
-}
-cmd_remove_release () {
-
-    cd_root
-    git_repo_guard
-
-    local remote="origin"
-    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
-    [[ -n "${auth}" ]] || auth="auto"
-
-    local key=""
-    local token=""
-    local token_env="${GITHUB_TOKEN_ENV}"
-    local tag=""
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -r|--remote)    shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
-            --auth)         shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
-            --key)          shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
-            --token)        shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
-            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
-            -h|--help)      log "Usage: remove-release <tag> [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
-            --)             shift || true; break ;;
-            -*)             die "Unknown arg: $1" 2 ;;
-            *)              tag="$1"; shift || true; break ;;
-        esac
-    done
-
-    [[ -n "${tag}" ]] || die "Usage: remove-release <tag> ..." 2
-    tag="$(git_norm_tag "${tag}")"
-
-    confirm "Delete tag '${tag}' locally and on '${remote}'?" || return 0
-    run git tag -d "${tag}" >/dev/null 2>&1 || true
-
-    git_require_remote "${remote}"
-
-    local kind="" target="" safe="" ssh_cmd=""
-    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
-
-    git_cmd "${kind}" "${ssh_cmd}" push "${target}" --delete "${tag}" >/dev/null 2>&1 || true
-
-}
-cmd_new_release () {
-
-    local tag="${1:-}"
-    shift || true
-    [[ -n "${tag}" ]] || die "Usage: new-release <tag> [push options...]" 2
-
-    cmd_push --release "${tag}" "$@"
 
 }
 cmd_push () {
@@ -1081,5 +916,306 @@ cmd_push () {
     fi
 
     log "OK: pushed via ${kind} -> ${safe}"
+
+}
+cmd_default_branch () {
+
+    cd_root
+
+    local b=""
+    b="$(git_default_branch "origin")" || die "Can't detect default branch." 2
+
+    printf '%s\n' "${b}"
+
+}
+cmd_current_branch () {
+
+    cd_root
+    git_repo_guard
+
+    local b=""
+    b="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+    [[ -n "${b}" ]] || die "No branch checked out." 2
+    log "${b}"
+
+}
+cmd_switch_branch () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
+    [[ -n "${auth}" ]] || auth="auto"
+
+    local key=""
+    local token=""
+    local token_env="${GITHUB_TOKEN_ENV}"
+
+    local b=""
+    local create=0
+    local track=1
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--remote)   shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)        shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)         shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)       shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;   shift ;;
+            --token-env)   shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -c|--create)   create=1; shift ;;
+            --no-track)    track=0; shift ;;
+            -h|--help)
+                log "Usage: switch-branch <branch> [--create|-c] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>] [--no-track]"
+                log "Behavior:"
+                log "  - If branch exists locally: switch to it."
+                log "  - Else if exists on remote and tracking enabled: create local tracking branch."
+                log "  - Else: create new local branch only if --create is set, otherwise error."
+                return 0
+            ;;
+            --) shift || true; break ;;
+            -*) die "Unknown arg: $1" 2 ;;
+            *)  b="$1"; shift || true; break ;;
+        esac
+    done
+
+    [[ -n "${b}" ]] || die "Usage: switch-branch <branch> ..." 2
+    [[ "${b}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "Invalid branch name: ${b}" 2
+
+    if git show-ref --verify --quiet "refs/heads/${b}"; then
+        git_switch "${b}"
+        return 0
+    fi
+
+    local kind="" target="" safe="" ssh_cmd=""
+    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
+    [[ -n "${kind}" && -n "${target}" ]] || die "Failed to resolve git auth for remote '${remote}'." 2
+
+    if (( track )) && git_remote_has_branch "${kind}" "${ssh_cmd}" "${target}" "${b}"; then
+
+        git_cmd "${kind}" "${ssh_cmd}" fetch "${target}" \
+            "refs/heads/${b}:refs/remotes/${remote}/${b}" >/dev/null 2>&1 || true
+
+        git_switch -c "${b}" --track "${remote}/${b}"
+        return 0
+
+    fi
+
+    (( create )) || die "Branch not found: ${b}. Use --create to create locally, or ensure it exists on remote." 2
+
+    git_switch -c "${b}"
+
+}
+cmd_all_branches () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local include_remote=0
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            -r|--remote)  shift || true; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift || true ;;
+            --all|--remote-branches) include_remote=1; shift ;;
+            -h|--help)
+                log "Usage: all-branches [--all] [--remote <name>]"
+                log "  (default) prints local branches only"
+                log "  --all prints local + remote branches"
+                return 0
+            ;;
+            --) shift || true; break ;;
+            -*) die "Unknown arg: ${1}" 2 ;;
+            *)  die "Unknown arg: ${1}" 2 ;;
+        esac
+    done
+
+    if (( include_remote )); then
+        git_require_remote "${remote}"
+        git fetch --prune "${remote}" >/dev/null 2>&1 || true
+
+        git for-each-ref \
+            --format='%(refname:short)' \
+            "refs/heads" "refs/remotes/${remote}" \
+        | awk '!/\/HEAD$/'
+        return 0
+    fi
+
+    git for-each-ref --format='%(refname:short)' "refs/heads"
+
+}
+cmd_all_tags () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local include_remote=0
+
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            -r|--remote)  shift || true; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift || true ;;
+            --all|--remote-tags) include_remote=1; shift ;;
+            -h|--help)
+                log "Usage: all-tags [--all] [--remote <name>]"
+                log "  (default) prints local tags only"
+                log "  --all prints local + remote tags"
+                return 0
+            ;;
+            --) shift || true; break ;;
+            -*) die "Unknown arg: ${1}" 2 ;;
+            *)  die "Unknown arg: ${1}" 2 ;;
+        esac
+    done
+
+    if (( include_remote )); then
+        git_require_remote "${remote}"
+        git fetch --prune --tags "${remote}" >/dev/null 2>&1 || true
+    fi
+
+    git tag --list
+
+}
+cmd_new_release () {
+
+    local tag="${1:-}"
+    shift || true
+    [[ -n "${tag}" ]] || die "Usage: new-release <tag> [push options...]" 2
+
+    cmd_push --release "${tag}" "$@"
+
+}
+cmd_remove_release () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
+    [[ -n "${auth}" ]] || auth="auto"
+
+    local key=""
+    local token=""
+    local token_env="${GITHUB_TOKEN_ENV}"
+    local tag=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--remote)    shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)         shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)          shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)        shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
+            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -h|--help)      log "Usage: remove-release <tag> [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
+            --)             shift || true; break ;;
+            -*)             die "Unknown arg: $1" 2 ;;
+            *)              tag="$1"; shift || true; break ;;
+        esac
+    done
+
+    [[ -n "${tag}" ]] || die "Usage: remove-release <tag> ..." 2
+    tag="$(git_norm_tag "${tag}")"
+
+    confirm "Delete tag '${tag}' locally and on '${remote}'?" || return 0
+    run git tag -d "${tag}" >/dev/null 2>&1 || true
+
+    git_require_remote "${remote}"
+
+    local kind="" target="" safe="" ssh_cmd=""
+    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
+
+    git_cmd "${kind}" "${ssh_cmd}" push "${target}" --delete "${tag}" >/dev/null 2>&1 || true
+
+}
+cmd_new_branch () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local key="" token="" b="" token_env="${GITHUB_TOKEN_ENV}"
+    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
+
+    [[ -n "${auth}" ]] || auth="auto"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--remote)    shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)         shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)          shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)        shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
+            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -h|--help)      log "Usage: new-branch <branch> [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
+            --)             shift || true; break ;;
+            -*)             die "Unknown arg: $1" 2 ;;
+            *)              b="$1"; shift || true; break ;;
+        esac
+    done
+
+    [[ -n "${b}" ]] || die "Usage: new-branch <branch> ..." 2
+
+    git_require_remote "${remote}"
+
+    local kind="" target="" safe="" ssh_cmd=""
+    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
+
+    if git show-ref --verify --quiet "refs/heads/${b}"; then
+        git_switch "${b}"
+        return 0
+    fi
+
+    if git_remote_has_branch "${kind}" "${ssh_cmd}" "${target}" "${b}"; then
+
+        git_cmd "${kind}" "${ssh_cmd}" fetch "${target}" "refs/heads/${b}:refs/remotes/${remote}/${b}" >/dev/null 2>&1 || true
+        git_switch -c "${b}" --track "${remote}/${b}"
+        return 0
+
+    fi
+
+    git_switch -c "${b}"
+
+}
+cmd_remove_branch () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local key="" token="" b="" token_env="${GITHUB_TOKEN_ENV}"
+    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
+
+    [[ -n "${auth}" ]] || auth="auto"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--remote)    shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)         shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)          shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)        shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;  shift ;;
+            --token-env)    shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -h|--help)      log "Usage: remove-branch <branch> [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>]"; return 0 ;;
+            --)             shift || true; break ;;
+            -*)             die "Unknown arg: $1" 2 ;;
+            *)              b="$1"; shift || true; break ;;
+        esac
+    done
+
+    [[ -n "${b}" ]] || die "Usage: remove-branch <branch> ..." 2
+
+    git_require_remote "${remote}"
+
+    local cur=""
+    cur="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [[ "${cur}" != "${b}" ]] || die "Can't delete current branch: ${b}" 2
+
+    confirm "Delete branch '${b}' locally and on '${remote}'?" || return 0
+
+    run git branch -D "${b}" >/dev/null 2>&1 || true
+
+    local kind="" target="" safe="" ssh_cmd=""
+    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
+
+    git_cmd "${kind}" "${ssh_cmd}" push "${target}" --delete "${b}" >/dev/null 2>&1 || true
 
 }

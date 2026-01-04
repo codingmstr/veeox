@@ -15,7 +15,7 @@ pick_sort_locale () {
 
     local all=""
 
-    if has_cmd locale; then
+    if has locale; then
         all="$(locale -a 2>/dev/null || true)"
 
         printf '%s\n' "${all}" | grep -qx "C\.UTF-8"     && { printf '%s\n' "C.UTF-8"; return 0; }
@@ -26,6 +26,8 @@ pick_sort_locale () {
 
 }
 pick_sort_bin () {
+
+    ensure_pkg sort
 
     local c=""
 
@@ -87,12 +89,7 @@ nightly_version () {
 }
 msrv_version () {
 
-    need_cmd cargo
-    need_cmd rustc
-    need_cmd jq
-    need_cmd tail
-    need_cmd awk
-    need_cmd sed
+    ensure_pkg jq tail awk sed
 
     local tc=""
 
@@ -123,8 +120,6 @@ ensure_toolchain () {
     local tc="${1:-}"
     [[ -n "${tc}" ]] || die "Error: ensure_toolchain needs a toolchain" 2
 
-    need_cmd rustup
-
     rustup run "${tc}" rustc -V >/dev/null 2>&1 && return 0
 
     run rustup toolchain install "${tc}" --profile minimal
@@ -133,7 +128,7 @@ ensure_toolchain () {
 }
 ensure_rust () {
 
-    need_cmd uname
+    ensure_pkg uname curl sh
 
     local stable="" nightly="" msrv="" uname_s=""
 
@@ -146,11 +141,7 @@ ensure_rust () {
     if [[ -n "${GITHUB_PATH:-}" ]]; then
         printf '%s\n' "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
     fi
-
-    if ! has_cmd rustup; then
-
-        need_cmd curl
-        need_cmd sh
+    if ! has rustup; then
 
         case "${uname_s}" in
             MINGW*|MSYS*|CYGWIN*)
@@ -179,7 +170,7 @@ ensure_rust () {
         export PATH="${HOME}/.cargo/bin:${PATH}"
         [[ -f "${HOME}/.cargo/env" ]] && source "${HOME}/.cargo/env" || true
 
-        has_cmd rustup || die "rustup installed but not found in PATH (check ~/.cargo/bin)." 2
+        has rustup || die "rustup installed but not found in PATH (check ~/.cargo/bin)." 2
 
     fi
 
@@ -205,7 +196,7 @@ ensure_component () {
     local tc="${2:-}"
 
     [[ -n "${comp}" ]] || die "Error: ensure_component requires a component name" 2
-    has_cmd rustup || return 0
+    has rustup || return 0
 
     if [[ -z "${tc}" ]]; then
         tc="$(stable_version)"
@@ -237,20 +228,20 @@ ensure_crate () {
 
     export PATH="${HOME}/.cargo/bin:${PATH}"
 
-    if has_cmd "${bin}"; then
+    if has "${bin}"; then
         return 0
     fi
 
     run cargo install --locked "${crate}" "$@" || die "Failed to install: ${crate}" 2
-    has_cmd "${bin}" || die "Installed ${crate} but '${bin}' not found in PATH (check ~/.cargo/bin)." 2
+    has "${bin}" || die "Installed ${crate} but '${bin}' not found in PATH (check ~/.cargo/bin)." 2
 
 }
 ensure_node () {
 
-    local want="${1:-24}" v major uname_s=""
+    local want="${1:-25}" v major uname_s=""
     uname_s="$(uname -s 2>/dev/null || true)"
 
-    if has_cmd node; then
+    if has node; then
 
         v="$(node --version 2>/dev/null || true)"
         v="${v#v}"
@@ -258,7 +249,7 @@ ensure_node () {
 
         [[ "${major}" =~ ^[0-9]+$ ]] || die "Can't parse Node.js version: ${v}" 2
 
-        if (( major >= want )) && has_cmd npx && npx --version >/dev/null 2>&1; then
+        if (( major >= want )) && has npx && npx --version >/dev/null 2>&1; then
             return 0
         fi
 
@@ -283,14 +274,14 @@ ensure_node () {
 
     export PATH="${VOLTA_HOME}/bin:${PATH}"
 
-    if ! has_cmd volta; then
+    if ! has volta; then
 
         case "${uname_s}" in
             MINGW*|MSYS*|CYGWIN*)
 
-                if has_cmd winget; then
+                if has winget; then
                     run winget install -e --id Volta.Volta --accept-package-agreements --accept-source-agreements --silent
-                elif has_cmd choco; then
+                elif has choco; then
                     run choco install -y volta
                 else
                     die "No installer found (need winget or choco) to install Volta on Windows." 2
@@ -298,7 +289,7 @@ ensure_node () {
 
                 export PATH="/c/ProgramData/chocolatey/bin:${PATH}"
 
-                if ! has_cmd volta; then
+                if ! has volta; then
                     local u=""
                     u="${USERNAME:-$(whoami 2>/dev/null || true)}"
 
@@ -311,20 +302,20 @@ ensure_node () {
 
             ;;
             *)
-                ensure_pkg --no-update curl
+                ensure_pkg curl
                 run curl -fsSL https://get.volta.sh | bash || die "Failed to install Volta." 2
             ;;
         esac
 
         export PATH="${VOLTA_HOME}/bin:${PATH}"
-        has_cmd volta || die "Volta installed but not found in PATH. Restart shell or fix PATH/VOLTA_HOME." 2
+        has volta || die "Volta installed but not found in PATH. Restart shell or fix PATH/VOLTA_HOME." 2
 
     fi
 
     run volta install "node@${want}" || die "Failed to install Node via Volta." 2
 
-    has_cmd node || die "Node install finished but 'node' not found in PATH." 2
-    has_cmd npx  || die "npx not found after Node install. Check PATH/VOLTA_HOME." 2
+    has node || die "Node install finished but 'node' not found in PATH." 2
+    has npx  || die "npx not found after Node install. Check PATH/VOLTA_HOME." 2
     npx --version >/dev/null 2>&1 || die "npx exists but failed to run. Check environment/PATH." 2
 
     v="$(node --version 2>/dev/null || true)"
@@ -339,12 +330,138 @@ ensure_node () {
     fi
 
 }
-only_publish_pkgs () {
+ensure () {
 
     cd_root
-    need_cmd cargo
-    need_cmd jq
-    need_cmd sort
+    (( $# )) || return 0;
+
+    local want=""
+
+    for want in "$@"; do
+
+        [[ -n "${want}" ]] || continue
+
+        has "${want}" && continue
+
+        case "${want}" in
+            node|nodejs)
+                ensure_node
+            ;;
+            rustc|rustup|cargo)
+                ensure_rust
+            ;;
+            rustfmt|clippy|llvm-tools-preview)
+                ensure_rust
+                ensure_component "${want}"
+            ;;
+            taplo)
+                ensure_rust
+                ensure_crate taplo-cli taplo
+            ;;
+            cargo-audit)
+                ensure_rust
+                ensure_crate cargo-audit cargo-audit --features fix
+            ;;
+            cargo-*)
+                ensure_rust
+                ensure_crate "${want}" "${want}"
+            ;;
+            *)
+                ensure_pkg "${want}"
+            ;;
+        esac
+
+    done
+
+}
+ensure_all () {
+
+    printf "\n💥 Ensure OS Tools ... \n"
+    ensure jq perl grep curl clang llvm-config libclang-dev hunspell awk tail sed sort head wc xargs find git node
+    printf "\n🟢 OS Tools Done \n\n"
+
+    printf "\n💥 Ensure Rustup Tools ... \n"
+    ensure cargo rustfmt clippy llvm-tools-preview
+    printf "\n🟢 Rustup Tools Done \n\n"
+
+    printf "\n💥 Ensure Cargo Tools ... \n"
+    ensure cargo-deny cargo-audit cargo-spellcheck cargo-llvm-cov taplo cargo-nextest cargo-hack cargo-fuzz cargo-ci-cache-clean cargo-semver-checks
+    printf "\n🟢 Cargo Tools Done \n\n"
+
+}
+run_cargo () {
+
+    ensure cargo
+
+    local sub="${1:-}" tc="" mode="stable"
+    [[ -n "${sub}" ]] || die "Error: run_cargo requires a cargo subcommand (example: run_cargo check ...)" 2
+    shift || true
+
+    local use_plus=0 need_docflags=0
+    local -a pass=()
+
+    has rustup && use_plus=1
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--nightly) mode="nightly"; shift || true ;;
+            -m|--msrv|--min) mode="msrv"; shift || true ;;
+            -s|--stable) mode="stable"; shift || true ;;
+            --)
+                pass+=( "--" )
+                shift || true
+                pass+=( "$@" )
+                break
+            ;;
+            *) pass+=( "$1" ); shift || true ;;
+        esac
+    done
+
+    if (( use_plus )); then
+
+        if [[ "${mode}" == "nightly" ]]; then
+            tc="$(nightly_version)"
+        elif [[ "${mode}" == "msrv" ]]; then
+            tc="$(msrv_version)"
+        else
+            tc="$(stable_version)"
+        fi
+
+    else
+
+        [[ "${mode}" == "stable" ]] || die "rustup not found: Use --stable or install rustup." 2
+
+    fi
+
+    if [[ "${sub}" == "doc" || "${sub}" == "rustdoc" ]]; then
+        need_docflags=1
+    elif [[ "${sub}" == "test" ]]; then
+        local a=""
+        for a in "${pass[@]}"; do
+            [[ "${a}" == "--doc" ]] && { need_docflags=1; break; }
+        done
+    fi
+
+    if (( need_docflags )); then
+        if (( use_plus )); then
+            RUSTDOCFLAGS="$(docflags_deny)" run cargo +"${tc}" "${sub}" "${pass[@]}"
+            return $?
+        fi
+
+        RUSTDOCFLAGS="$(docflags_deny)" run cargo "${sub}" "${pass[@]}"
+        return $?
+    fi
+    if (( use_plus )); then
+        run cargo +"${tc}" "${sub}" "${pass[@]}"
+        return $?
+    fi
+
+    run cargo "${sub}" "${pass[@]}"
+
+}
+only_publish_pkgs () {
+
+    ensure cargo jq
 
     run cargo metadata --format-version=1 --no-deps \
         | jq -r '
@@ -373,17 +490,13 @@ only_publish_pkgs () {
 }
 codecov_upload () {
 
+    ensure git curl chmod mv mkdir
+
     local file="${1}"
     local flags="${2:-}"
     local name="${3:-}"
     local version="${4:-latest}"
     local token="${5:-${CODECOV_TOKEN-}}"
-
-    need_cmd git
-    need_cmd curl
-    need_cmd chmod
-    need_cmd mv
-    need_cmd mkdir
 
     if [[ -z "${token}" ]]; then
         log "Codecov: CODECOV_TOKEN is missing -> skipping upload (common on fork PRs)."
@@ -457,76 +570,6 @@ codecov_upload () {
     if [[ -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_SHA:-}" ]]; then
         log "Codecov: https://app.codecov.io/gh/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
     fi
-
-}
-cargo_run () {
-
-    need_cmd cargo
-
-    local sub="${1:-}" tc="" mode="stable"
-    [[ -n "${sub}" ]] || die "Error: cargo_run requires a cargo subcommand (example: cargo_run check ...)" 2
-    shift || true
-
-    local use_plus=0 need_docflags=0
-    local -a pass=()
-
-    has_cmd rustup && use_plus=1
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -n|--nightly) mode="nightly"; shift || true ;;
-            -m|--msrv|--min) mode="msrv"; shift || true ;;
-            -s|--stable) mode="stable"; shift || true ;;
-            --)
-                pass+=( "--" )
-                shift || true
-                pass+=( "$@" )
-                break
-            ;;
-            *) pass+=( "$1" ); shift || true ;;
-        esac
-    done
-
-    if (( use_plus )); then
-
-        if [[ "${mode}" == "nightly" ]]; then
-            tc="$(nightly_version)"
-        elif [[ "${mode}" == "msrv" ]]; then
-            tc="$(msrv_version)"
-        else
-            tc="$(stable_version)"
-        fi
-
-    else
-
-        [[ "${mode}" == "stable" ]] || die "rustup not found: Use --stable or install rustup." 2
-
-    fi
-
-    if [[ "${sub}" == "doc" || "${sub}" == "rustdoc" ]]; then
-        need_docflags=1
-    elif [[ "${sub}" == "test" ]]; then
-        local a=""
-        for a in "${pass[@]}"; do
-            [[ "${a}" == "--doc" ]] && { need_docflags=1; break; }
-        done
-    fi
-
-    if (( need_docflags )); then
-        if (( use_plus )); then
-            RUSTDOCFLAGS="$(docflags_deny)" run cargo +"${tc}" "${sub}" "${pass[@]}"
-            return $?
-        fi
-
-        RUSTDOCFLAGS="$(docflags_deny)" run cargo "${sub}" "${pass[@]}"
-        return $?
-    fi
-    if (( use_plus )); then
-        run cargo +"${tc}" "${sub}" "${pass[@]}"
-        return $?
-    fi
-
-    run cargo "${sub}" "${pass[@]}"
 
 }
 cargo_help () {
@@ -614,9 +657,7 @@ cmd_msrv () {
 }
 cmd_new () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd perl
+    ensure cargo perl
 
     local kind="--lib"
     local dir="crates"
@@ -665,7 +706,7 @@ cmd_new () {
     [[ -e "${path}" ]] && die "Error: already exists: ${path}" 2
 
     mkdir -p -- "${dir}" 2>/dev/null || true
-    cargo_run new --vcs none "${kind}" "${pass[@]}" "${path}"
+    run_cargo new --vcs none "${kind}" "${pass[@]}" "${path}"
 
     [[ ${add_workspace} -eq 1 ]] || return 0
     [[ -f Cargo.toml ]] || return 0
@@ -691,8 +732,7 @@ cmd_new () {
 }
 cmd_build () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local add_ws=1
     local -a pass=( "$@" )
@@ -708,13 +748,12 @@ cmd_build () {
         (( i++ ))
     done
 
-    (( add_ws )) && cargo_run build --workspace "${pass[@]}" || cargo_run build "${pass[@]}"
+    (( add_ws )) && run_cargo build --workspace "${pass[@]}" || run_cargo build "${pass[@]}"
 
 }
 cmd_run () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local pkg="" bin=""
     local -a cargo_args=()
@@ -765,7 +804,7 @@ cmd_run () {
         esac
     done
 
-    cmd=( cargo_run run )
+    cmd=( run_cargo run )
 
     [[ -n "${pkg}" ]] && cmd+=( -p "${pkg}" )
     [[ -n "${bin}" ]] && cmd+=( --bin "${bin}" )
@@ -778,25 +817,19 @@ cmd_run () {
 }
 cmd_clean () {
 
-    cd_root
-    need_cmd cargo
-
-    cargo_run clean "$@"
+    ensure cargo
+    run_cargo clean "$@"
 
 }
 cmd_clean_cache () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd cargo-ci-cache-clean
-
-    cargo_run ci-cache-clean "$@"
+    ensure cargo-ci-cache-clean
+    run_cargo ci-cache-clean "$@"
 
 }
 cmd_check () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local ws=1
 
@@ -809,13 +842,12 @@ cmd_check () {
         esac
     done
 
-    (( ws )) && cargo_run check --workspace --all-targets --all-features "$@" || cargo_run check --all-targets --all-features "$@"
+    (( ws )) && run_cargo check --workspace --all-targets --all-features "$@" || run_cargo check --all-targets --all-features "$@"
 
 }
 cmd_test () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local package=""
     local ws=1
@@ -868,18 +900,18 @@ cmd_test () {
     if cargo nextest --version >/dev/null 2>&1; then
 
         if [[ -n "${package}" ]]; then
-            cargo_run nextest run -p "${package}" "${feat[@]}" "${pass[@]}"
+            run_cargo nextest run -p "${package}" "${feat[@]}" "${pass[@]}"
             return 0
         fi
 
         (( ws )) \
-            && cargo_run nextest run --workspace "${feat[@]}" "${pass[@]}" \
-            || cargo_run nextest run "${feat[@]}" "${pass[@]}"
+            && run_cargo nextest run --workspace "${feat[@]}" "${pass[@]}" \
+            || run_cargo nextest run "${feat[@]}" "${pass[@]}"
 
         return 0
 
     fi
-    if has_cmd cargo-nextest; then
+    if has cargo-nextest; then
 
         local -a cmd=( cargo-nextest run )
 
@@ -894,17 +926,16 @@ cmd_test () {
 
     fi
     if [[ -n "${package}" ]]; then
-        cargo_run test -p "${package}" "${feat[@]}" "${pass[@]}"
+        run_cargo test -p "${package}" "${feat[@]}" "${pass[@]}"
         return 0
     fi
 
-    (( ws )) && cargo_run test --workspace "${feat[@]}" "${pass[@]}" || cargo_run test "${feat[@]}" "${pass[@]}"
+    (( ws )) && run_cargo test --workspace "${feat[@]}" "${pass[@]}" || run_cargo test "${feat[@]}" "${pass[@]}"
 
 }
 cmd_check_doc () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local ws=1
 
@@ -917,13 +948,12 @@ cmd_check_doc () {
         esac
     done
 
-    (( ws )) && cargo_run doc --workspace --all-features --no-deps "$@" || cargo_run doc --all-features --no-deps "$@"
+    (( ws )) && run_cargo doc --workspace --all-features --no-deps "$@" || run_cargo doc --all-features --no-deps "$@"
 
 }
 cmd_test_doc () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local ws=1
 
@@ -936,13 +966,12 @@ cmd_test_doc () {
         esac
     done
 
-    (( ws )) && cargo_run test --workspace --all-features --doc "$@" || cargo_run test --all-features --doc "$@"
+    (( ws )) && run_cargo test --workspace --all-features --doc "$@" || run_cargo test --all-features --doc "$@"
 
 }
 cmd_open_doc () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local ws=1
     for a in "$@"; do
@@ -954,7 +983,7 @@ cmd_open_doc () {
         esac
     done
 
-    (( ws )) && cargo_run doc --workspace --all-features --no-deps "$@" || cargo_run doc --all-features --no-deps "$@"
+    (( ws )) && run_cargo doc --workspace --all-features --no-deps "$@" || run_cargo doc --all-features --no-deps "$@"
     local index=""
 
     if [[ -f "${ROOT_DIR}/target/doc/index.html" ]]; then
@@ -969,7 +998,7 @@ cmd_open_doc () {
 }
 cmd_clean_doc () {
 
-    cd_root
+    ensure
     local p="${ROOT_DIR}/target/doc"
 
     [[ -d "${p}" ]] || return 0
@@ -978,20 +1007,14 @@ cmd_clean_doc () {
 }
 cmd_check_fmt () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd rustfmt
-
-    cargo_run fmt --all --check "$@"
+    ensure rustfmt
+    run_cargo fmt --all --check "$@"
 
 }
 cmd_fix_fmt () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd rustfmt
-
-    cargo_run fmt --all "$@"
+    ensure rustfmt
+    run_cargo fmt --all "$@"
 
 }
 cmd_check_fmt_nightly () {
@@ -1006,8 +1029,7 @@ cmd_fix_fmt_nightly () {
 }
 cmd_clippy () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local has_sel=0
     local a=""
@@ -1022,7 +1044,7 @@ cmd_clippy () {
     done
 
     if (( has_sel )); then
-        cargo_run clippy --all-targets --all-features "$@"
+        run_cargo clippy --all-targets --all-features "$@"
         return 0
     fi
 
@@ -1040,21 +1062,18 @@ cmd_clippy () {
         args+=( -p "${p}" )
     done
 
-    cargo_run clippy "${args[@]}" --all-targets --all-features "$@"
+    run_cargo clippy "${args[@]}" --all-targets --all-features "$@"
 
 }
 cmd_clippy_strict () {
 
-    cd_root
-    need_cmd cargo
-
-    cargo_run clippy --workspace --all-targets --all-features "$@"
+    ensure cargo
+    run_cargo clippy --workspace --all-targets --all-features "$@"
 
 }
 cmd_bench () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local ws=1
     local want_all_features=1
@@ -1091,13 +1110,12 @@ cmd_bench () {
     local -a feat=()
     (( want_all_features )) && feat=( --all-features )
 
-    (( ws )) && cargo_run bench --workspace "${feat[@]}" "${pass[@]}" || cargo_run bench "${feat[@]}" "${pass[@]}"
+    (( ws )) && run_cargo bench --workspace "${feat[@]}" "${pass[@]}" || run_cargo bench "${feat[@]}" "${pass[@]}"
 
 }
 cmd_example () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local name="${1:-}"
     [[ -n "${name}" ]] || die "Usage: example <name> [-p <package>] [-- <args...>]" 2
@@ -1133,7 +1151,7 @@ cmd_example () {
         esac
     done
 
-    local -a cmd=( cargo_run run -p "${pkg}" --example "${name}" )
+    local -a cmd=( run_cargo run -p "${pkg}" --example "${name}" )
 
     cmd+=( "${cargo_args[@]}" )
     [[ ${#prog_args[@]} -gt 0 ]] && cmd+=( -- "${prog_args[@]}" )
@@ -1143,9 +1161,7 @@ cmd_example () {
 }
 cmd_hack () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd cargo-hack
+    ensure cargo-hack
 
     local mode="powerset"
     local depth="2"
@@ -1191,20 +1207,16 @@ cmd_hack () {
     (( ws )) && base+=( --workspace )
 
     if [[ "${mode}" == "each" ]]; then
-        cargo_run "${base[@]}" --each-feature "${pass[@]}"
+        run_cargo "${base[@]}" --each-feature "${pass[@]}"
         return $?
     fi
 
-    cargo_run "${base[@]}" --feature-powerset --depth "${depth}" "${pass[@]}"
+    run_cargo "${base[@]}" --feature-powerset --depth "${depth}" "${pass[@]}"
 
 }
 cmd_fuzz () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd rustup
-    need_cmd awk
-    need_cmd grep
+    ensure cargo awk grep
 
     local tc
     tc="$(nightly_version)"
@@ -1297,10 +1309,7 @@ cmd_fuzz () {
 }
 cmd_semver () {
 
-    cd_root
-    need_cmd git
-    need_cmd cargo
-    need_cmd cargo-semver-checks
+    ensure cargo-semver-checks git
 
     local remote="${GIT_REMOTE:-origin}"
     local baseline="${CARGO_SEMVER_CHECKS_BASELINE_REV:-${SEMVER_BASELINE:-}}"
@@ -1372,18 +1381,16 @@ cmd_semver () {
 
     local -a extra=()
 
-    if cargo_run semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev'; then
+    if run_cargo semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev'; then
         extra+=(--baseline-rev "${baseline}")
     fi
 
-    cargo_run semver-checks "${extra[@]}" "$@"
+    run_cargo semver-checks "${extra[@]}" "$@"
 
 }
 cmd_coverage () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd jq
+    ensure cargo jq
 
     local upload=0
     local codecov_name=""
@@ -1445,14 +1452,14 @@ cmd_coverage () {
         *) die "Invalid --mode: ${mode} (use: lcov|json|codecov)" 2 ;;
     esac
 
-    if ! cargo_run llvm-cov --version >/dev/null 2>&1; then
+    if ! run_cargo llvm-cov --version >/dev/null 2>&1; then
         log "cargo-llvm-cov is not installed."
         log "Install:"
         log "  rustup component add llvm-tools"
         log "  cargo install cargo-llvm-cov"
         exit 2
     fi
-    if has_cmd rustup; then
+    if has rustup; then
         if ! run rustup component list --installed 2>/dev/null | grep -Eq '^(llvm-tools|llvm-tools-preview)\b'; then
             log "Missing Rust component: llvm-tools (or llvm-tools-preview)"
             log "Install one of:"
@@ -1504,16 +1511,16 @@ cmd_coverage () {
     if [[ "${mode}" == "codecov" ]]; then
 
         out="${ROOT_DIR}/codecov.json"
-        cargo_run llvm-cov "${args[@]}" --all-targets --all-features --codecov --output-path "${out}" "$@"
+        run_cargo llvm-cov "${args[@]}" --all-targets --all-features --codecov --output-path "${out}" "$@"
 
     elif [[ "${mode}" == "json" ]]; then
 
         out="${ROOT_DIR}/coverage.json"
-        cargo_run llvm-cov "${args[@]}" --all-targets --all-features --json --output-path "${out}" "$@"
+        run_cargo llvm-cov "${args[@]}" --all-targets --all-features --json --output-path "${out}" "$@"
 
     else
 
-        cargo_run llvm-cov "${args[@]}" --all-targets --all-features --lcov --output-path "${out}" "$@"
+        run_cargo llvm-cov "${args[@]}" --all-targets --all-features --lcov --output-path "${out}" "$@"
 
     fi
 
@@ -1547,16 +1554,9 @@ cmd_coverage () {
 }
 cmd_spellcheck () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd head
-    need_cmd sed
-    need_cmd wc
-    need_cmd sort
-    need_cmd grep
-    need_cmd xargs
+    ensure cargo head sed wc sort grep xargs
 
-    if ! cargo_run spellcheck --version >/dev/null 2>&1; then
+    if ! run_cargo spellcheck --version >/dev/null 2>&1; then
         log "cargo-spellcheck is not installed."
         log "Install: cargo install cargo-spellcheck"
         exit 2
@@ -1593,7 +1593,7 @@ cmd_spellcheck () {
         shopt -u nullglob
     fi
 
-    cargo_run spellcheck --code 1 "${paths[@]}"
+    run_cargo spellcheck --code 1 "${paths[@]}"
 
     if grep -I --exclude-dir=.git --exclude-dir=target --exclude-dir=scripts -nRE '[[:blank:]]+$' .; then
         die "Please remove trailing whitespace from these lines." 1
@@ -1604,9 +1604,7 @@ cmd_spellcheck () {
 }
 cmd_check_prettier () {
 
-    cd_root
-    has_cmd node || { is_ci && die "node is required for prettier" 2; log "skip: node not installed"; return 0; }
-    has_cmd npx  || { is_ci && die "npx is required for prettier" 2; log "skip: npx not installed"; return 0; }
+    ensure node
 
     run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --check \
         ".github/**/*.{yml,yaml}" \
@@ -1617,9 +1615,7 @@ cmd_check_prettier () {
 }
 cmd_fix_prettier () {
 
-    cd_root
-    has_cmd node || { is_ci && die "node is required for prettier" 2; log "skip: node not installed"; return 0; }
-    has_cmd npx  || { is_ci && die "npx is required for prettier" 2; log "skip: npx not installed"; return 0; }
+    ensure node
 
     run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --write \
         ".github/**/*.{yml,yaml}" \
@@ -1630,31 +1626,25 @@ cmd_fix_prettier () {
 }
 cmd_check_taplo () {
 
-    cd_root
-    need_cmd taplo
+    ensure taplo
     run taplo fmt --check "$@"
 
 }
 cmd_fix_taplo () {
 
-    cd_root
-    need_cmd taplo
+    ensure taplo
     run taplo fmt "$@"
 
 }
 cmd_check_audit () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd cargo-deny
-    cargo_run deny check advisories bans licenses sources "$@"
+    ensure cargo-deny
+    run_cargo deny check advisories bans licenses sources "$@"
 
 }
 cmd_fix_audit () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd cargo-audit
+    ensure cargo-audit
 
     local adv="${HOME}/.cargo/advisory-db"
 
@@ -1662,14 +1652,12 @@ cmd_fix_audit () {
         mv "${adv}" "${adv}.broken.$(date +%s)" || true
     fi
 
-    cargo_run audit fix "$@"
+    run_cargo audit fix "$@"
 
 }
 cmd_fix_ws () {
 
-    cd_root
-    need_cmd git
-    need_cmd perl
+    ensure git perl
 
     local f=""
 
@@ -1683,7 +1671,7 @@ cmd_fix_ws () {
 }
 cmd_doctor () {
 
-    cd_root
+    ensure
 
     is_ci || {
         export RUSTFLAGS='-Dwarnings'
@@ -1729,7 +1717,7 @@ cmd_doctor () {
 
     local root="$(pwd 2>/dev/null || echo .)"
 
-    if has_cmd git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if has git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 
         local branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
         local head="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -1758,7 +1746,7 @@ cmd_doctor () {
 
     printf '\n=== Tooling ===\n\n'
 
-    if has_cmd rustup; then
+    if has rustup; then
 
         local rustc_v="$(rustc -V 2>/dev/null || true)"
         local cargo_v="$(cargo -V 2>/dev/null || true)"
@@ -1800,31 +1788,31 @@ cmd_doctor () {
         printf '  ❌ %-18s %s\n' "rustup:" "missing"; fail=$(( fail + 1 ))
     fi
 
-    if has_cmd clang; then
+    if has clang; then
         printf '  ✅ %-18s %s\n' "clang:" "$(clang --version 2>/dev/null | head -n 1)"; ok=$(( ok + 1 ))
     else
         printf '  ⚠️ %-18s %s\n' "clang:" "missing"; warn=$(( warn + 1 ))
     fi
 
-    if has_cmd llvm-config; then
+    if has llvm-config; then
         printf '  ✅ %-18s %s\n' "llvm:" "$(llvm-config --version 2>/dev/null || true)"; ok=$(( ok + 1 ))
     else
         printf '  ⚠️ %-18s %s\n' "llvm:" "missing"; warn=$(( warn + 1 ))
     fi
 
-    if has_cmd node; then
+    if has node; then
         printf '  ✅ %-18s %s\n' "node:" "$(node -v 2>/dev/null || true)"; ok=$(( ok + 1 ))
     else
         printf '  ⚠️ %-18s %s\n' "node:" "missing"; warn=$(( warn + 1 ))
     fi
 
-    if has_cmd npx; then
+    if has npx; then
         printf '  ✅ %-18s %s\n' "npx:" "$(npx -v 2>/dev/null || true)"; ok=$(( ok + 1 ))
     else
         printf '  ⚠️ %-18s %s\n' "npx:" "missing"; warn=$(( warn + 1 ))
     fi
 
-    if has_cmd npm; then
+    if has npm; then
         printf '  ✅ %-18s %s\n' "npm:" "$(npm -v 2>/dev/null || true)"; ok=$(( ok + 1 ))
     else
         printf '  ⚠️ %-18s %s\n' "npm:" "missing"; warn=$(( warn + 1 ))
@@ -1832,7 +1820,7 @@ cmd_doctor () {
 
     printf '\n=== Rustup ===\n\n'
 
-    if has_cmd rustup; then
+    if has rustup; then
 
         local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
 
@@ -1872,15 +1860,15 @@ cmd_doctor () {
 
     printf '\n=== Cargo ===\n\n'
 
-    if has_cmd cargo; then
+    if has cargo; then
 
-        has_cmd cargo-nextest && { printf '  ✅ %-18s %s\n' "nextest:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "nextest:" "missing"; warn=$(( warn + 1 )); }
-        has_cmd cargo-llvm-cov && { printf '  ✅ %-18s %s\n' "llvm-cov:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "llvm-cov:" "missing"; warn=$(( warn + 1 )); }
-        has_cmd cargo-deny && { printf '  ✅ %-18s %s\n' "cargo-deny:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-deny:" "missing"; warn=$(( warn + 1 )); }
-        has_cmd cargo-audit && { printf '  ✅ %-18s %s\n' "cargo-audit:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-audit:" "missing"; warn=$(( warn + 1 )); }
-        has_cmd cargo-semver-checks && { printf '  ✅ %-18s %s\n' "cargo-semver:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-semver:" "missing"; warn=$(( warn + 1 )); }
-        has_cmd cargo-hack && { printf '  ✅ %-18s %s\n' "cargo-hack:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-hack:" "missing"; warn=$(( warn + 1 )); }
-        has_cmd cargo-fuzz && { printf '  ✅ %-18s %s\n' "cargo-fuzz:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-fuzz:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-nextest && { printf '  ✅ %-18s %s\n' "nextest:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "nextest:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-llvm-cov && { printf '  ✅ %-18s %s\n' "llvm-cov:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "llvm-cov:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-deny && { printf '  ✅ %-18s %s\n' "cargo-deny:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-deny:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-audit && { printf '  ✅ %-18s %s\n' "cargo-audit:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-audit:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-semver-checks && { printf '  ✅ %-18s %s\n' "cargo-semver:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-semver:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-hack && { printf '  ✅ %-18s %s\n' "cargo-hack:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-hack:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-fuzz && { printf '  ✅ %-18s %s\n' "cargo-fuzz:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-fuzz:" "missing"; warn=$(( warn + 1 )); }
 
         if [[ -d fuzz ]] && [[ -f fuzz/Cargo.toml ]]; then
 
@@ -1916,9 +1904,7 @@ cmd_doctor () {
 }
 cmd_meta () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd jq
+    ensure cargo jq
 
     local full=0
     local mode="pretty"
@@ -2108,19 +2094,17 @@ cmd_meta () {
     fi
 
     if [[ -n "${out}" ]]; then
-        need_cmd tee
-        cargo_run metadata "${cargo_args[@]}" | tee "${out}" | jq "${jq_args[@]}" "${filter}"
+        ensure tee
+        run_cargo metadata "${cargo_args[@]}" | tee "${out}" | jq "${jq_args[@]}" "${filter}"
         return 0
     fi
 
-    cargo_run metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
+    run_cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
 
 }
 cmd_version () {
 
-    cd_root
-    need_cmd cargo
-    need_cmd jq
+    ensure cargo jq
 
     local name="${1:-}"
     local meta=""
@@ -2168,8 +2152,7 @@ cmd_version () {
 }
 cmd_is_publishable () {
 
-    need_cmd grep
-    need_cmd tr
+    ensure grep tr
 
     local name="${1:-}" needle=""
     [[ -n "${name}" ]] || die "Error: package name is required." 2
@@ -2187,9 +2170,7 @@ cmd_is_publishable () {
 }
 cmd_is_published () {
 
-    cd_root
-    need_cmd curl
-    need_cmd grep
+    ensure grep curl
 
     local name="${1:-}"
     [[ -n "${name}" ]] || die "Error: crate name is required." 2
@@ -2234,7 +2215,7 @@ cmd_is_published () {
 }
 cmd_can_publish () {
 
-    cd_root
+    ensure
 
     local name="${1:-}"
 
@@ -2262,8 +2243,7 @@ cmd_can_publish () {
 }
 cmd_publish () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local dry_run=0
     local allow_dirty=0
@@ -2349,7 +2329,7 @@ cmd_publish () {
         [[ -n "${token}" || -n "${env_token}" ]] || die "Missing registry token in CI. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
 
     fi
-    if (( dry_run == 0 )) && has_cmd git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if (( dry_run == 0 )) && has git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 
         if (( allow_dirty == 0 )) && [[ -n "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
             die "Refusing publish with a dirty git working tree. Commit/stash changes, or pass --allow-dirty." 2
@@ -2415,21 +2395,20 @@ cmd_publish () {
             [[ "$(cmd_can_publish "${p}")" == "yes" ]] || die "Error: ${p} already published" 2
         done
         for p in "${packages[@]}"; do
-            cargo_run publish --package "${p}" "${cargo_args[@]}" "$@"
+            run_cargo publish --package "${p}" "${cargo_args[@]}" "$@"
         done
 
     else
 
         [[ "$(cmd_can_publish)" == "yes" ]] || die "Error: there is one/many packages already published" 2
-        cargo_run publish --workspace "${cargo_args[@]}" "$@"
+        run_cargo publish --workspace "${cargo_args[@]}" "$@"
 
     fi
 
 }
 cmd_yank () {
 
-    cd_root
-    need_cmd cargo
+    ensure cargo
 
     local package=""
     local version=""
@@ -2557,43 +2536,17 @@ cmd_yank () {
 
     fi
     if (( undo )); then
-        cargo_run yank -p "${package}" --version "${version}" --undo "${pass[@]}"
+        run_cargo yank -p "${package}" --version "${version}" --undo "${pass[@]}"
         return 0
     fi
 
-    cargo_run yank -p "${package}" --version "${version}" "${pass[@]}"
+    run_cargo yank -p "${package}" --version "${version}" "${pass[@]}"
 
 }
 
 cmd_ensure () {
 
-    cd_root
-
-    printf "\n💥 Ensure OS Tools ... \n\n"
-
-    ensure_pkg --no-update jq perl grep curl clang llvm-dev libclang-dev hunspell awk tail sed sort head wc xargs find git
-    ensure_rust
-    ensure_node
-
-    printf "\n💥 Ensure rustup Tools ... \n\n"
-
-    ensure_component rustfmt
-    ensure_component clippy
-    ensure_component llvm-tools-preview
-
-    printf "\n💥 Ensure Cargo Tools ... \n\n"
-
-    ensure_crate cargo-deny            cargo-deny
-    ensure_crate cargo-audit           cargo-audit --features fix
-    ensure_crate cargo-spellcheck      cargo-spellcheck
-    ensure_crate cargo-llvm-cov        cargo-llvm-cov
-    ensure_crate taplo-cli             taplo
-    ensure_crate cargo-nextest         cargo-nextest
-    ensure_crate cargo-hack            cargo-hack
-    ensure_crate cargo-fuzz            cargo-fuzz
-    ensure_crate cargo-ci-cache-clean  cargo-ci-cache-clean
-    ensure_crate cargo-semver-checks   cargo-semver-checks
-
+    ensure_all
     trap 'cmd_clean_cache >/dev/null 2>&1 || true' EXIT
 
 }
@@ -2719,7 +2672,7 @@ cmd_ci_publish () {
     cmd_ensure
 
     printf "\n💥 Publish ...\n\n"
-    # cmd_publish "$@"
+    cmd_publish "$@"
 
     printf "\n✅ CI PUBLISH Succeeded.\n\n"
 
