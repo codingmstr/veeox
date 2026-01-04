@@ -596,10 +596,10 @@ cargo_help () {
     nightly-test        Validate that your Rust compiler satisfies the workspace tests nightly version
 
     fix-ws              Remove trailing whitespace in git-tracked files
-    check-fmt           Verify formatting (no changes)
-    fix-fmt             Auto-format code
-    check-fmt-nightly   Verify formatting checks --nightly (no changes)
-    fix-fmt-nightly     Auto-format code --nightly
+    check-fmt           Verify formatting --nightly (no changes)
+    fix-fmt             Auto-format code --nightly
+    check-fmt-stable    Verify formatting checks (no changes)
+    fix-fmt-stable      Auto-format code
 
     clippy              Run lints on crates/ only (strict)
     clippy-strict       Run lints on the full workspace (very strict)
@@ -1008,23 +1008,25 @@ cmd_clean_doc () {
 cmd_check_fmt () {
 
     ensure rustfmt
-    run_cargo fmt --all --check "$@"
+    run_cargo fmt --all --check --nightly "$@"
 
 }
 cmd_fix_fmt () {
 
     ensure rustfmt
+    run_cargo fmt --all --nightly "$@"
+
+}
+cmd_check_fmt_stable () {
+
+    ensure rustfmt
+    run_cargo fmt --all --check "$@"
+
+}
+cmd_fix_fmt_stable () {
+
+    ensure rustfmt
     run_cargo fmt --all "$@"
-
-}
-cmd_check_fmt_nightly () {
-
-    cmd_check_fmt --nightly
-
-}
-cmd_fix_fmt_nightly () {
-
-    cmd_fix_fmt --nightly
 
 }
 cmd_clippy () {
@@ -1563,7 +1565,7 @@ cmd_spellcheck () {
     fi
 
     local file="${ROOT_DIR}/spellcheck.dic"
-    need_file "${file}"
+    ensure_file "${file}"
 
     local first_line
     first_line="$(head -n 1 "${file}" || true)"
@@ -1722,7 +1724,7 @@ cmd_doctor () {
         local branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
         local head="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
         local dirty=""
-        
+
         if git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null; then
             dirty="clean"
         else
@@ -1753,7 +1755,7 @@ cmd_doctor () {
         local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
         local stable_tc="${RUST_STABLE:-stable}"
         local nightly_tc="${RUST_NIGHTLY:-nightly}"
-        
+
         if [[ -n "${rustc_v}" ]]; then
             printf '  ✅ %-18s %s\n' "rustc:" "${rustc_v}"; ok=$(( ok + 1 ))
         else

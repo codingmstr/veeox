@@ -289,7 +289,6 @@ dir_exists () {
     local path=""
     path="$(path_expand "${1:-}")"
     [[ -n "${path}" ]] || return 1
-
     [[ -d "${path}" ]]
 
 }
@@ -298,7 +297,6 @@ file_exists () {
     local path=""
     path="$(path_expand "${1:-}")"
     [[ -n "${path}" ]] || return 1
-
     [[ -f "${path}" ]]
 
 }
@@ -376,7 +374,6 @@ ensure_file () {
     if [[ -e "${path}" && ! -f "${path}" ]]; then
         die "ensure_file: path exists but not a regular file: ${path}" 2
     fi
-
     if [[ ! -f "${path}" ]]; then
 
         ensure_dir "$(dirname -- "${path}")" "" "" "" "${strict}"
@@ -384,7 +381,6 @@ ensure_file () {
         : > "${path}" 2>/dev/null || die "ensure_file: failed to create file: ${path}" 2
 
     fi
-
     if [[ -n "${mode}" ]]; then
         if has chmod; then
             chmod "${mode}" "${path}" 2>/dev/null || {
@@ -398,7 +394,6 @@ ensure_file () {
             (( strict )) && die "ensure_file: chmod not available for ${path}" 2
         fi
     fi
-
     if [[ -n "${owner}" ]]; then
         if has chown; then
             if [[ -n "${group}" ]]; then

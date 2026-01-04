@@ -26,7 +26,6 @@ git_cmd () {
         return $?
 
     fi
-
     if [[ -n "${ssh_cmd}" ]]; then
         GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${ssh_cmd}" run git "$@"
         return $?
