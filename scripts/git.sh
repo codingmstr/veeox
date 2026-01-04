@@ -52,7 +52,6 @@ git_switch () {
         git switch "$@"
         return $?
     fi
-
     if [[ "${1:-}" == "-c" ]]; then
 
         shift || true
@@ -696,6 +695,86 @@ cmd_remote () {
     fi
 
     log "Protocol: unknown"
+
+}
+cmd_current_branch () {
+
+    cd_root
+    git_repo_guard
+
+    local b=""
+    b="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+    [[ -n "${b}" ]] || die "No branch checked out." 2
+
+    log "${b}"
+
+}
+cmd_switch_branch () {
+
+    cd_root
+    git_repo_guard
+
+    local remote="origin"
+    local auth="$(env_get "${GITHUB_AUTH_ENV}")"
+    [[ -n "${auth}" ]] || auth="auto"
+
+    local key=""
+    local token=""
+    local token_env="${GITHUB_TOKEN_ENV}"
+
+    local b=""
+    local create=0
+    local track=1
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--remote)   shift; remote="${1:-}"; [[ -n "${remote}" ]] || die "Error: --remote requires a value" 2; shift ;;
+            --auth)        shift; auth="${1:-}";   [[ -n "${auth}" ]]   || die "Error: --auth requires a value" 2;   shift ;;
+            --key)         shift; key="${1:-}";    [[ -n "${key}" ]]    || die "Error: --key requires a value" 2;    shift ;;
+            --token)       shift; token="${1:-}";  [[ -n "${token}" ]]  || die "Error: --token requires a value" 2;   shift ;;
+            --token-env)   shift; token_env="${1:-}"; [[ -n "${token_env}" ]] || die "Error: --token-env requires a value" 2; shift ;;
+            -c|--create)   create=1; shift ;;
+            --no-track)    track=0; shift ;;
+            -h|--help)
+                log "Usage: switch-branch <branch> [--create|-c] [--remote origin] [--auth auto|ssh|http] [--key <path>] [--token <v>|--token-env <VAR>] [--no-track]"
+                log "Behavior:"
+                log "  - If branch exists locally: switch to it."
+                log "  - Else if exists on remote and tracking enabled: create local tracking branch."
+                log "  - Else: create new local branch only if --create is set, otherwise error."
+                return 0
+            ;;
+            --) shift || true; break ;;
+            -*) die "Unknown arg: $1" 2 ;;
+            *)  b="$1"; shift || true; break ;;
+        esac
+    done
+
+    [[ -n "${b}" ]] || die "Usage: switch-branch <branch> ..." 2
+    [[ "${b}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "Invalid branch name: ${b}" 2
+
+    if git show-ref --verify --quiet "refs/heads/${b}"; then
+        git_switch "${b}"
+        return 0
+    fi
+
+    local kind="" target="" safe="" ssh_cmd=""
+    IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
+    [[ -n "${kind}" && -n "${target}" ]] || die "Failed to resolve git auth for remote '${remote}'." 2
+
+    if (( track )) && git_remote_has_branch "${kind}" "${ssh_cmd}" "${target}" "${b}"; then
+
+        git_cmd "${kind}" "${ssh_cmd}" fetch "${target}" \
+            "refs/heads/${b}:refs/remotes/${remote}/${b}" >/dev/null 2>&1 || true
+
+        git_switch -c "${b}" --track "${remote}/${b}"
+        return 0
+
+    fi
+
+    (( create )) || die "Branch not found: ${b}. Use --create to create locally, or ensure it exists on remote." 2
+
+    git_switch -c "${b}"
 
 }
 cmd_new_branch () {

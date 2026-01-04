@@ -139,8 +139,21 @@ confirm () {
     is_ci && die "Refusing interactive prompt in CI." 2
 
     local ans=""
-    read -r -p "${msg} [y/N]: " ans < /dev/tty 2>/dev/null || true
-    [[ "${ans}" == "y" || "${ans}" == "Y" ]]
+    local tty="/dev/tty"
+
+    if [[ -r "${tty}" && -w "${tty}" ]]; then
+
+        printf '%s' "${msg} [y/N]: " > "${tty}"
+        IFS= read -r ans < "${tty}" 2>/dev/null || true
+
+    else
+
+        printf '%s' "${msg} [y/N]: " >&2
+        IFS= read -r ans 2>/dev/null || true
+
+    fi
+
+    [[ "${ans}" == "y" || "${ans}" == "Y" || "${ans}" == "yes" || "${ans}" == "Yes" || "${ans}" == "YES" ]]
 
 }
 env_is_name () {
