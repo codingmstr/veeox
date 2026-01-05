@@ -364,6 +364,22 @@ detect_rc () {
     printf '%s\n' "${home}/.profile"
 
 }
+slugify () {
+
+    local s="${1-}"
+
+    s="${s//[[:space:]]/-}"
+
+    while [[ "${s}" == *"--"* ]]; do
+        s="${s//--/-}"
+    done
+
+    s="${s#-}"
+    s="${s%-}"
+
+    printf '%s' "${s}"
+
+}
 is_valid_alias () {
 
     local a="${1:-}"
