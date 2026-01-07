@@ -4,7 +4,10 @@
 [[ -n "${PARSE_LOADED:-}" ]] && return 0
 PARSE_LOADED=1
 
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/env.sh"
+__dir="${BASH_SOURCE[0]%/*}"
+[[ "${__dir}" == "${BASH_SOURCE[0]}" ]] && __dir="."
+__core_dir="$(cd -- "${__dir}" && pwd -P)"
+source "${__core_dir}/env.sh"
 
 parse_require_bash () {
 
@@ -986,11 +989,67 @@ parse_args__validate_and_normalize () {
     return 0
 
 }
+parse_usage_extract () {
+
+    local -n in_schema="${1}"
+    local -n out_usage="${2}"
+
+    out_usage=""
+
+    local -a cleaned=()
+    local i=0
+
+    while (( i < ${#in_schema[@]} )); do
+        case "${in_schema[$i]}" in
+            --usage|--help|-h|--h)
+                out_usage="${in_schema[$(( i + 1 ))]-}"
+                [[ -n "${out_usage}" ]] || die "parse: help/usage flag requires function name" 2
+                i=$(( i + 2 ))
+                continue
+            ;;
+            --usage=*)
+                out_usage="${in_schema[$i]#--usage=}"
+                [[ -n "${out_usage}" ]] || die "parse: help/usage flag requires function name" 2
+                i=$(( i + 1 ))
+                continue
+            ;;
+            --help=*)
+                out_usage="${in_schema[$i]#--help=}"
+                [[ -n "${out_usage}" ]] || die "parse: help/usage flag requires function name" 2
+                i=$(( i + 1 ))
+                continue
+            ;;
+            -h=*)
+                out_usage="${in_schema[$i]#-h=}"
+                [[ -n "${out_usage}" ]] || die "parse: help/usage flag requires function name" 2
+                i=$(( i + 1 ))
+                continue
+            ;;
+            --h=*)
+                out_usage="${in_schema[$i]#--h=}"
+                [[ -n "${out_usage}" ]] || die "parse: help/usage flag requires function name" 2
+                i=$(( i + 1 ))
+                continue
+            ;;
+        esac
+
+        cleaned+=( "${in_schema[$i]}" )
+        i=$(( i + 1 ))
+    done
+
+    in_schema=( "${cleaned[@]}" )
+
+    if [[ -n "${out_usage}" ]]; then
+        [[ "${out_usage}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || die "parse: invalid usage fn: ${out_usage}" 2
+    fi
+
+}
 parse_args () {
 
     local IFS=$' \n\t'
 
     local scope="assign"
+
     if [[ "${1-}" == "--local" ]]; then
         scope="local"
         shift || true
@@ -1008,6 +1067,36 @@ parse_args () {
     local -a schema=()
 
     parse_args_split argv schema "$@"
+
+    local usage_fn="" a=""
+    parse_usage_extract schema usage_fn
+
+    for a in "${argv[@]}"; do
+        case "${a}" in
+            -h|--help)
+                if [[ -n "${usage_fn}" ]]; then
+                    printf '%s\n' "if declare -F ${usage_fn} >/dev/null; then"
+                    printf '%s\n' "    ${usage_fn}"
+                    printf '%s\n' '    if [[ $- == *i* ]]; then return 0 2>/dev/null || true; else exit 0; fi'
+                    printf '%s\n' 'fi'
+                    printf '%s\n' "printf '%s\n' \"No help available (missing ${usage_fn}()).\" >&2"
+                    printf '%s\n' 'if [[ $- == *i* ]]; then return 2 2>/dev/null || true; else exit 2; fi'
+                    return 0
+                fi
+
+                printf '%s\n' 'if declare -F usage >/dev/null; then'
+                printf '%s\n' '    usage'
+                printf '%s\n' '    if [[ $- == *i* ]]; then return 0 2>/dev/null || true; else exit 0; fi'
+                printf '%s\n' 'elif declare -F help >/dev/null; then'
+                printf '%s\n' '    help'
+                printf '%s\n' '    if [[ $- == *i* ]]; then return 0 2>/dev/null || true; else exit 0; fi'
+                printf '%s\n' 'fi'
+                printf '%s\n' 'printf "%s\n" "No help available (define usage() or help())." >&2'
+                printf '%s\n' 'if [[ $- == *i* ]]; then return 2 2>/dev/null || true; else exit 2; fi'
+                return 0
+            ;;
+        esac
+    done
 
     local -A stype=()
     local -A sreq=()
@@ -1042,60 +1131,5 @@ parse_args () {
 parse () {
 
     parse_args --local "$@"
-
-}
-
-
-test () {
-
-    deep_func () {
-
-        source <(parse "$@" -- num:int)
-
-        print "\n>> deep_func \n"
-        print "\tNumber\t: $num"
-
-        if [[ -n "${kwargs[@]}" ]]; then print "\tExtra\t: ${kwargs[@]}"; fi
-
-    }
-    inner_func () {
-
-        source <(parse "$@" -- value:str opt:bool)
-
-        print "\n>> inner_func \n"
-        print "\tValue\t: $value"
-        print "\tOpt\t: $opt"
-
-        deep_func "${kwargs[@]}"
-
-    }
-    some_func () {
-
-        source <(parse "$@" -- :name:str :model:char :age:int salary:float=150000 status:bool notes:any active roles:list)
-
-        print "\n>> some_func \n"
-        print "\tName\t: $name"
-        print "\tModel\t: $model"
-        print "\tAge\t: $age"
-        print "\tSalary\t: $salary"
-        print "\tStatus\t: $status"
-        print "\tActive\t: $active"
-        print "\tNotes\t: $notes"
-        print "\tRoles\t: ${roles[@]}"
-
-        inner_func "${kwargs[@]}"
-
-    }
-
-    print "\n*** Call 1\n"
-    some_func "Coding Master" A 23 200000 true "Thank you." --active --roles admin --roles supervisor --roles vendor
-
-    print "\n*** Call 2\n"
-    some_func --model A --age 23 --status true --name "Coding Master" --notes "Thank you." --active false --roles admin --roles supervisor --roles vendor 140000 "value" --opt 1
-
-    print "\n**** Call 3\n"
-    some_func "Coding Master" A 23 200000 true "Thank you." --active --roles admin --roles supervisor --roles vendor "value" --no-opt 165 blablabla 00000
-
-    print
 
 }

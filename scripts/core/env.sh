@@ -39,7 +39,7 @@ info () {
     (( QUIET_ENV )) && return 0
 
     local pre="" suf=""
-    pre="$(colorize black 2)"
+    pre="$(colorize blue 2)"
     suf="$(colorize reset 2)"
 
     local IFS=' '
@@ -117,6 +117,13 @@ eprint () {
     fi
 
     printf '%b\n' "$*" >&2
+
+}
+log () {
+
+    local IFS=' '
+    (( $# )) || { printf '\n' >&2; return 0; }
+    printf '%s\n' "$*" >&2
 
 }
 input () {
@@ -455,6 +462,21 @@ choose () {
     printf '%s' "${items[$((pick-1))]}"
 
 }
+current_date () {
+
+    LC_ALL=C command date '+%Y-%m-%d'
+
+}
+current_time () {
+
+    LC_ALL=C command date '+%H:%M:%S'
+
+}
+current_datetime () {
+
+    LC_ALL=C command date '+%Y-%m-%d %H:%M:%S'
+
+}
 cd_root () {
 
     cd -- "${ROOT_DIR}"
@@ -537,6 +559,14 @@ abs_dir () {
     ( cd -- "${d}" 2>/dev/null && pwd -P ) || return 1
 
 }
+uc_first () {
+
+    local s="${1:-}"
+    [[ -n "${s}" ]] || { printf '%s' ""; return 0; }
+
+    printf '%s%s' "$(printf '%s' "${s:0:1}" | tr '[:lower:]' '[:upper:]')" "${s:1}"
+
+}
 run () {
 
     (( $# )) || return 0
@@ -587,6 +617,129 @@ ln_sf () {
     else
         cp "${src}" "${dst}"
     fi
+
+}
+slugify () {
+
+    local s="${1-}"
+    s="${s//[[:space:]]/-}"
+
+    while [[ "${s}" == *"--"* ]]; do
+        s="${s//--/-}"
+    done
+
+    s="${s#-}"
+    s="${s%-}"
+
+    printf '%s' "${s}"
+
+}
+is_valid_alias () {
+
+    local a="${1:-}"
+
+    [[ -n "${a}" ]] || return 1
+    [[ "${a}" != *"/"* && "${a}" != *"\\"* ]] || return 1
+    [[ "${a}" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
+
+}
+rc_path () {
+
+    local shell="${SHELL:-}" home="${HOME:-}" kind="sh"
+    local os="$(os_name)"
+
+    if [[ -z "${home}" ]]; then
+        home="$(cd ~ 2>/dev/null && pwd || printf '%s' ".")"
+    fi
+
+    if [[ -n "${ZSH_VERSION:-}" || "${shell}" == */zsh ]]; then
+        kind="zsh"
+    elif [[ -n "${BASH_VERSION:-}" || "${shell}" == */bash ]]; then
+        kind="bash"
+    elif [[ -n "${FISH_VERSION:-}" || "${shell}" == */fish ]]; then
+        kind="fish"
+    elif [[ "${shell}" == */ksh ]]; then
+        kind="ksh"
+    fi
+
+    if [[ "${kind}" == "zsh" ]]; then
+        printf '%s\n' "${home}/.zshrc"
+        return 0
+    fi
+    if [[ "${kind}" == "fish" ]]; then
+        printf '%s\n' "${home}/.config/fish/config.fish"
+        return 0
+    fi
+    if [[ "${kind}" == "ksh" ]]; then
+        printf '%s\n' "${home}/.kshrc"
+        return 0
+    fi
+    if [[ "${kind}" == "bash" ]]; then
+
+        local bashrc="${home}/.bashrc"
+
+        if [[ "${os}" == "linux" ]]; then
+            printf '%s\n' "${bashrc}"
+            return 0
+        fi
+        if [[ "${os}" == "windows" ]]; then
+            printf '%s\n' "${bashrc}"
+            return 0
+        fi
+        if [[ "${os}" == "mac" ]]; then
+
+            local bash_profile="${home}/.bash_profile"
+            local profile="${home}/.profile"
+            local login="${bash_profile}"
+
+            [[ -f "${bash_profile}" ]] && login="${bash_profile}"
+            [[ -f "${bash_profile}" ]] || { [[ -f "${profile}" ]] && login="${profile}"; }
+
+            if [[ -f "${login}" && -f "${bashrc}" ]]; then
+
+                local line=""
+                while IFS= read -r line || [[ -n "${line}" ]]; do
+
+                    line="${line%%#*}"
+
+                    case "${line}" in
+                        *".bashrc"*)
+                            case "${line}" in
+                                *"source "*".bashrc"*|*". "*".bashrc"*) printf '%s\n' "${bashrc}"; return 0 ;;
+                            esac
+                        ;;
+                    esac
+
+                done < "${login}" 2>/dev/null || true
+
+            fi
+
+            printf '%s\n' "${login}"
+            return 0
+
+        fi
+
+        printf '%s\n' "${bashrc}"
+        return 0
+
+    fi
+
+    printf '%s\n' "${home}/.profile"
+
+}
+home_path () {
+
+    local h="${HOME:-}"
+
+    if [[ -n "${h}" ]]; then
+        printf '%s' "${h}"
+        return 0
+    fi
+
+    h="$(cd ~ 2>/dev/null && pwd || true)"
+    [[ -n "${h}" ]] || die "HOME not set; cannot resolve home directory." 2
+
+    printf '%s' "${h}"
 
 }
 open_path () {
@@ -666,38 +819,5 @@ on_err () {
 
     set -E
     trap 'trap_on_err "'"${handler}"'"' ERR
-
-}
-
-
-test () {
-
-    print welcome
-    eprint welcome
-    info welcome
-    success welcome
-    warn welcome
-    error welcome
-    print "Name: $(input "Enter name: ")"
-    print "Status: $(input_bool "Enter status: ")"
-    print "Degree: $(input_int "Enter degree: ")"
-    print "Age: $(input_uint "Enter age: ")"
-    print "Salary: $(input_float "Enter salary: ")"
-    print "Model: $(input_char "Enter model: ")"
-    print "Password: $(input_pass "Enter password: ")"
-    print "Path: $(input_path "Enter path: ")"
-    print "Sured: $(confirm_bool "Are you sure? ")"
-    print "Choosed: $(choose "Chooce one:" "First" "Second" "Third")"
-    print "$(os_name)"
-    print "$(get_env BASH)"
-    is_main && print "main" || print "not main"
-    is_ci && print "ci" || print "not ci"
-    is_wsl && print "wsl" || print "not wsl"
-    is_linux && print "linux" || print "not linux"
-    is_mac && print "mac" || print "not mac"
-    print "$(abs_dir)"
-    run echo "welcome"
-    has node && run node --version
-    open_path "/var/www/html/index.html"
 
 }

@@ -2,21 +2,17 @@ blank_issues_enabled: false
 
 contact_links:
   - name: '💬 Discussions'
-    url: 'https://github.com/__user__/__repo__/discussions'
+    url: '__discussions_url__'
     about: 'Questions, ideas, RFCs, and general discussion.'
 
   - name: '✨ Ideas (start here for features)'
-    url: 'https://github.com/__user__/__repo__/discussions/categories/ideas'
+    url: '__ideas_url__'
     about: 'Propose features and enhancements before opening an issue.'
 
-  - name: '🔐 Security Vulnerability'
-    url: 'https://github.com/__user__/__repo__/security/advisories/new'
-    about: 'Report a security issue privately.'
-
   - name: '🤝 Support'
-    url: 'https://github.com/__user__/__repo__/blob/main/SUPPORT.md'
+    url: '__support_url__'
     about: 'Support channels and how to get help.'
 
   - name: '📚 Documentation'
-    url: 'https://github.com/__user__/__repo__/blob/main/README.md'
+    url: '__readme_url__'
     about: 'Project documentation and getting started.'

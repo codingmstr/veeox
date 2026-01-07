@@ -6,9 +6,9 @@ Need help `__NAME__`? Here is the fastest path to a solution 👇
 
 | I need to...                      | Go to...                           |
 | :-------------------------------- | :--------------------------------- |
-| Ask “How do I…?” or discuss ideas | Discussions (`https://github.com/__USER__/__REPO__/discussions`)  |
-| Report a reproducible bug         | Issues (`https://github.com/__USER__/__REPO__/issues`)            |
-| Report a security vulnerability   | Security Policy (`https://github.com/__USER__/__REPO__/security`) |
+| Ask “How do I…?” or discuss ideas | Discussions (`__discussions_url__`)  |
+| Report a reproducible bug         | Issues (`__issues_url__`)            |
+| Report a security vulnerability   | Security Policy (`__security_url__`) |
 
 ---
 

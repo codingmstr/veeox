@@ -4,7 +4,10 @@
 [[ -n "${PKG_LOADED:-}" ]] && return 0
 PKG_LOADED=1
 
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/parse.sh"
+__dir="${BASH_SOURCE[0]%/*}"
+[[ "${__dir}" == "${BASH_SOURCE[0]}" ]] && __dir="."
+__core_dir="$(cd -- "${__dir}" && pwd -P)"
+source "${__core_dir}/parse.sh"
 
 pkg_has_cmd () {
 
@@ -483,10 +486,10 @@ pkg_collect_missing_wants () {
     return 0
 
 }
-ensure_linux_pkg () {
+pkg_install_linux () {
 
     local -a pkgs=( "$@" )
-    (( ${#pkgs[@]} )) || die "ensure_linux_pkg: missing package name(s)" 2
+    (( ${#pkgs[@]} )) || die "pkg_install_linux: missing package name(s)" 2
 
     local mgr=""
     mgr="$(pkg_linux_mgr)" || true
@@ -495,30 +498,53 @@ ensure_linux_pkg () {
     pkg_linux_install "${mgr}" "${pkgs[@]}"
 
 }
-ensure_mac_pkg () {
+pkg_install_mac () {
 
     local -a pkgs=( "$@" )
-    (( ${#pkgs[@]} )) || die "ensure_mac_pkg: missing package name(s)" 2
+    (( ${#pkgs[@]} )) || die "pkg_install_mac: missing package name(s)" 2
 
     pkg_mac_install "${pkgs[@]}"
 
 }
-ensure_win_pkg () {
+pkg_install_win () {
 
     local -a pkgs=( "$@" )
-    (( ${#pkgs[@]} )) || die "ensure_win_pkg: missing package name(s)" 2
+    (( ${#pkgs[@]} )) || die "pkg_install_win: missing package name(s)" 2
 
     if declare -F is_wsl >/dev/null 2>&1; then
-        is_wsl && die "WSL detected: use ensure_linux_pkg instead of ensure_win_pkg" 2
+        is_wsl && die "WSL detected: use pkg_install_linux instead of pkg_install_win" 2
     fi
 
     pkg_win_install "${pkgs[@]}"
 
 }
-ensure_cmd () {
+pkg_is_installed () {
 
-    (( $# )) || die "ensure_cmd: missing command name(s)" 2
-    ensure_pkg "$@"
+    local os="${1-}"
+    local p="${2-}"
+    [[ -n "${os}" && -n "${p}" ]] || return 1
+
+    case "${os}" in
+        linux)
+            if pkg_has_cmd dpkg; then dpkg -s "${p}" >/dev/null 2>&1; return $?; fi
+            if pkg_has_cmd rpm;  then rpm -q "${p}" >/dev/null 2>&1; return $?; fi
+            if pkg_has_cmd pacman; then pacman -Qi "${p}" >/dev/null 2>&1; return $?; fi
+            if pkg_has_cmd apk; then apk info -e "${p}" >/dev/null 2>&1; return $?; fi
+            return 1
+        ;;
+        mac)
+            pkg_has_cmd brew || return 1
+            brew list --versions "${p}" >/dev/null 2>&1
+            return $?
+        ;;
+        windows)
+            pkg_has_cmd pacman || return 1
+            pacman -Qi "${p}" >/dev/null 2>&1
+            return $?
+        ;;
+    esac
+
+    return 1
 
 }
 ensure_pkg () {
@@ -533,32 +559,57 @@ ensure_pkg () {
     (( QUIET_ENV || quiet )) && eff_quiet=1
     (( VERBOSE_ENV || verbose )) && eff_verbose=1
 
-    local os="$(os_name)"
+    local os=""
+    os="$(os_name)"
 
-    local -a pkgs=()
-    local -a uniq_pkgs=()
-
+    local -a pkgs=() uniq_pkgs=()
     pkg_map_list pkgs "${wants[@]}"
     pkg_uniq_list uniq_pkgs "${pkgs[@]}"
 
+    (( ${#uniq_pkgs[@]} )) || { pkg_hash_clear; pkg_verify_wants "${wants[@]}"; return 0; }
+
+    local -A _pkg_ok=()
+    local -a missing_pkgs=()
+    local p=""
+
+    for p in "${uniq_pkgs[@]}"; do
+
+        [[ -n "${p}" ]] || continue
+
+        if [[ -n "${_pkg_ok[${p}]-}" ]]; then
+            continue
+        fi
+
+        if pkg_is_installed "${os}" "${p}"; then
+            _pkg_ok["${p}"]=1
+        else
+            missing_pkgs+=( "${p}" )
+        fi
+
+    done
+
+    if (( ${#missing_pkgs[@]} == 0 )); then
+        [[ "${os}" == "mac" ]] && pkg_mac_gnu_shim "${wants[@]}"
+        pkg_hash_clear
+        pkg_verify_wants "${wants[@]}"
+        return 0
+    fi
+
     case "${os}" in
         linux)
-            YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_linux_pkg "${uniq_pkgs[@]}"
+            YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" pkg_install_linux "${missing_pkgs[@]}"
         ;;
         mac)
-            YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_mac_pkg "${uniq_pkgs[@]}"
+            YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" pkg_install_mac "${missing_pkgs[@]}"
             pkg_mac_gnu_shim "${wants[@]}"
         ;;
         windows)
             if pkg_has_cmd pacman; then
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_win_pkg "${uniq_pkgs[@]}"
+                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" pkg_install_win "${missing_pkgs[@]}"
             else
                 local -a missing=()
                 pkg_collect_missing_wants missing "${wants[@]}"
-
-                if (( ${#missing[@]} )); then
-                    die "windows: missing commands (${missing[*]}). Auto-install requires MSYS2 (pacman) or run under WSL/Linux." 2
-                fi
+                (( ${#missing[@]} )) && die "windows: missing commands (${missing[*]}). Auto-install requires MSYS2 (pacman) or run under WSL/Linux." 2
             fi
         ;;
         *)

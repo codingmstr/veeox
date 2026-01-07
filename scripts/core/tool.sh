@@ -4,7 +4,10 @@
 [[ -n "${TOOL_LOADED:-}" ]] && return 0
 TOOL_LOADED=1
 
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/pkg.sh"
+__dir="${BASH_SOURCE[0]%/*}"
+[[ "${__dir}" == "${BASH_SOURCE[0]}" ]] && __dir="."
+__core_dir="$(cd -- "${__dir}" && pwd -P)"
+source "${__core_dir}/pkg.sh"
 
 tool_path_prepend () {
 
@@ -31,7 +34,7 @@ tool_export_cargo_bin () {
     return 0
 
 }
-pick_sort_locale () {
+tool_pick_sort_locale () {
 
     local line=""
 
@@ -51,7 +54,7 @@ pick_sort_locale () {
     printf '%s\n' "C"
 
 }
-pick_sort_bin () {
+tool_pick_sort_bin () {
 
     ensure_pkg sort
 
@@ -60,17 +63,17 @@ pick_sort_bin () {
     die "Need GNU sort with -V. (mac) ensure_pkg sort should have shimmed it; check pkg_mac_gnu_shim/verify." 2
 
 }
-sort_ver () {
+tool_sort_ver () {
 
     local loc="" sbin=""
 
-    loc="$(pick_sort_locale)"
-    sbin="$(pick_sort_bin)"
+    loc="$(tool_pick_sort_locale)"
+    sbin="$(tool_pick_sort_bin)"
 
     LC_ALL="${loc}" "${sbin}" -V
 
 }
-normalize_version () {
+tool_normalize_version () {
 
     local tc="${1:-}"
     tc="${tc#v}"
@@ -86,7 +89,7 @@ normalize_version () {
     printf '%s\n' "${tc}"
 
 }
-rust_msrv_version () {
+tool_msrv_version () {
 
     ensure_pkg jq awk sed tail sort
 
@@ -94,7 +97,7 @@ rust_msrv_version () {
 
     if [[ -n "${RUST_MSRV:-}" ]]; then
 
-        tc="$(normalize_version "${RUST_MSRV}")"
+        tc="$(tool_normalize_version "${RUST_MSRV}")"
         [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Error: invalid RUST_MSRV (need x.y.z): ${RUST_MSRV}" 2
 
         printf '%s\n' "${tc}"
@@ -110,7 +113,7 @@ rust_msrv_version () {
         want="$(
             cargo metadata --no-deps --format-version 1 2>/dev/null \
                 | jq -r '.packages[].rust_version // empty' \
-                | sort_ver \
+                | tool_sort_ver \
                 | tail -n 1
         )"
 
@@ -118,19 +121,19 @@ rust_msrv_version () {
 
     [[ -n "${want}" ]] || { printf '%s\n' "${have}"; return 0; }
 
-    tc="$(normalize_version "${want}")"
+    tc="$(tool_normalize_version "${want}")"
     [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Error: invalid workspace rust_version (need x.y.z): ${want}" 2
 
-    [[ "$(printf '%s\n%s\n' "${tc}" "${have}" | sort_ver | awk 'NR==1{print;exit}')" == "${tc}" ]] \
+    [[ "$(printf '%s\n%s\n' "${tc}" "${have}" | tool_sort_ver | awk 'NR==1{print;exit}')" == "${tc}" ]] \
         || die "Rust too old: need >= ${tc}, have ${have}" 2
 
     printf '%s\n' "${tc}"
 
 }
-ensure_toolchain () {
+tool_chain () {
 
     local tc="${1:-}"
-    [[ -n "${tc}" ]] || die "Error: ensure_toolchain needs a toolchain" 2
+    [[ -n "${tc}" ]] || die "Error: tool_chain needs a toolchain" 2
 
     rustup run "${tc}" rustc -V >/dev/null 2>&1 && return 0
 
@@ -138,13 +141,14 @@ ensure_toolchain () {
     rustup run "${tc}" rustc -V >/dev/null 2>&1 || die "rustc not working after install: ${tc}" 2
 
 }
+
 ensure_rust () {
 
     ensure_pkg curl
     local stable="" nightly="" msrv="" uname_s=""
 
-    stable="$(normalize_version "${RUST_STABLE:-stable}")"
-    nightly="$(normalize_version "${RUST_NIGHTLY:-nightly}")"
+    stable="$(tool_normalize_version "${RUST_STABLE:-stable}")"
+    nightly="$(tool_normalize_version "${RUST_NIGHTLY:-nightly}")"
     uname_s="$(uname -s 2>/dev/null || true)"
 
     tool_export_cargo_bin
@@ -177,12 +181,12 @@ ensure_rust () {
 
     fi
 
-    msrv="$( ( rust_msrv_version ) 2>/dev/null || true )"
+    msrv="$( (tool_msrv_version) 2>/dev/null || true )"
     [[ -n "${msrv}" ]] || msrv="${stable}"
 
-    ensure_toolchain "${stable}"
-    ensure_toolchain "${nightly}"
-    ensure_toolchain "${msrv}"
+    tool_chain "${stable}"
+    tool_chain "${nightly}"
+    tool_chain "${msrv}"
 
     run rustup run "${stable}"  cargo -V >/dev/null 2>&1 || die "cargo (stable) not working after install." 2
     run rustup run "${nightly}" rustc -V >/dev/null 2>&1 || die "rustc (nightly) not working after install." 2
@@ -203,10 +207,10 @@ ensure_component () {
     has rustup || ensure_rust
 
     if [[ -z "${tc}" ]]; then
-        tc="$(normalize_version "${RUST_STABLE:-stable}")"
+        tc="$(tool_normalize_version "${RUST_STABLE:-stable}")"
     fi
 
-    ensure_toolchain "${tc}"
+    tool_chain "${tc}"
 
     if [[ "${comp}" == "llvm-tools-preview" ]]; then
 
@@ -356,7 +360,7 @@ ensure () {
     for want in "${wants[@]}"; do
 
         [[ -n "${want}" ]] || continue
-        has "${want}" && { print "$("$want" --version)"; continue; }
+        has "${want}" && continue
 
         case "${want}" in
             python|python3|python3.*|pip|pip3)

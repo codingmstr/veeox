@@ -9,8 +9,8 @@ rust-version = "1.90"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 description = "modern Rust ecosystem for high-performance tools."
-repository = "https://github.com/__user__/__repo__"
-homepage = "https://github.com/__user__/__repo__"
+repository = "__repo_url__"
+homepage = "__repo_url__"
 authors = ["__user__"]
 keywords = ["__name__"]
 
