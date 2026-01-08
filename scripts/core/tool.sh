@@ -9,6 +9,16 @@ __dir="${BASH_SOURCE[0]%/*}"
 __core_dir="$(cd -- "${__dir}" && pwd -P)"
 source "${__core_dir}/pkg.sh"
 
+tool_docflags_deny () {
+
+    local cur="${RUSTDOCFLAGS:-}"
+
+    [[ "${cur}" == *"-Dwarnings"* ]] && { printf '%s' "${cur}"; return 0; }
+    [[ -n "${cur}" ]] && { printf '%s -Dwarnings' "${cur}"; return 0; }
+
+    printf '%s' "-Dwarnings"
+
+}
 tool_path_prepend () {
 
     local d="${1-}"
@@ -16,7 +26,13 @@ tool_path_prepend () {
 
     case ":${PATH-}:" in
         *":${d}:"*) ;;
-        *) PATH="${d}:${PATH-}" ;;
+        *)
+            if [[ -n "${PATH-}" ]]; then
+                PATH="${d}:${PATH}"
+            else
+                PATH="${d}"
+            fi
+        ;;
     esac
 
     export PATH
@@ -84,9 +100,19 @@ tool_normalize_version () {
     esac
 
     [[ "${tc}" =~ ^[0-9]+\.[0-9]+$ ]] && tc="${tc}.0"
-    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Error: invalid version: ${1}" 2
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid version: ${1}" 2
 
     printf '%s\n' "${tc}"
+
+}
+tool_stable_version () {
+
+    tool_normalize_version "${RUST_STABLE:-stable}"
+
+}
+tool_nightly_version () {
+
+    tool_normalize_version "${RUST_NIGHTLY:-nightly}"
 
 }
 tool_msrv_version () {
@@ -98,7 +124,7 @@ tool_msrv_version () {
     if [[ -n "${RUST_MSRV:-}" ]]; then
 
         tc="$(tool_normalize_version "${RUST_MSRV}")"
-        [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Error: invalid RUST_MSRV (need x.y.z): ${RUST_MSRV}" 2
+        [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid RUST_MSRV (need x.y.z): ${RUST_MSRV}" 2
 
         printf '%s\n' "${tc}"
         return 0
@@ -106,7 +132,7 @@ tool_msrv_version () {
     fi
 
     have="$(rustc -V 2>/dev/null | awk '{print $2}' | sed 's/[^0-9.].*$//')"
-    [[ -n "${have}" ]] || die "Error: rustc not available to detect current version" 2
+    [[ -n "${have}" ]] || die "rustc not available to detect current version" 2
 
     if has cargo; then
 
@@ -122,10 +148,8 @@ tool_msrv_version () {
     [[ -n "${want}" ]] || { printf '%s\n' "${have}"; return 0; }
 
     tc="$(tool_normalize_version "${want}")"
-    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Error: invalid workspace rust_version (need x.y.z): ${want}" 2
-
-    [[ "$(printf '%s\n%s\n' "${tc}" "${have}" | tool_sort_ver | awk 'NR==1{print;exit}')" == "${tc}" ]] \
-        || die "Rust too old: need >= ${tc}, have ${have}" 2
+    [[ "${tc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid workspace rust_version (need x.y.z): ${want}" 2
+    [[ "$(printf '%s\n%s\n' "${tc}" "${have}" | tool_sort_ver | awk 'NR==1{print;exit}')" == "${tc}" ]] || die "Rust too old: need >= ${tc}, have ${have}" 2
 
     printf '%s\n' "${tc}"
 
@@ -133,7 +157,7 @@ tool_msrv_version () {
 tool_chain () {
 
     local tc="${1:-}"
-    [[ -n "${tc}" ]] || die "Error: tool_chain needs a toolchain" 2
+    [[ -n "${tc}" ]] || die "tool_chain needs a toolchain" 2
 
     rustup run "${tc}" rustc -V >/dev/null 2>&1 && return 0
 
@@ -147,8 +171,8 @@ ensure_rust () {
     ensure_pkg curl
     local stable="" nightly="" msrv="" uname_s=""
 
-    stable="$(tool_normalize_version "${RUST_STABLE:-stable}")"
-    nightly="$(tool_normalize_version "${RUST_NIGHTLY:-nightly}")"
+    stable="$(tool_stable_version)"
+    nightly="$(tool_nightly_version)"
     uname_s="$(uname -s 2>/dev/null || true)"
 
     tool_export_cargo_bin
@@ -202,12 +226,12 @@ ensure_component () {
     local comp="${1:-}"
     local tc="${2:-}"
 
-    [[ -n "${comp}" ]] || die "Error: ensure_component requires a component name" 2
+    [[ -n "${comp}" ]] || die "ensure_component requires a component name" 2
 
     has rustup || ensure_rust
 
     if [[ -z "${tc}" ]]; then
-        tc="$(tool_normalize_version "${RUST_STABLE:-stable}")"
+        tc="$(tool_stable_version)"
     fi
 
     tool_chain "${tc}"
@@ -230,8 +254,8 @@ ensure_crate () {
     local crate="${1:-}"
     local bin="${2:-}"
 
-    [[ -n "${crate}" ]] || die "Error: ensure_crate requires <crate>" 2
-    [[ -n "${bin}" ]]   || die "Error: ensure_crate requires <bin>" 2
+    [[ -n "${crate}" ]] || die "ensure_crate requires <crate>" 2
+    [[ -n "${bin}" ]]   || die "ensure_crate requires <bin>" 2
     shift 2 || true
 
     has cargo || ensure_rust
@@ -368,14 +392,11 @@ ensure () {
             ;;
             node|nodejs)
                 YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_node
-                has node || die "ensure: missing 'node' after install" 2
             ;;
             rust|rustc|rustup|cargo)
                 YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_rust
-                has "${want}" || die "ensure: missing '${want}' after install" 2
             ;;
             rustfmt|clippy|llvm-tools-preview)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_rust
                 YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_component "${want}"
             ;;
             taplo)

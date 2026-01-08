@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["tests", "benches", "examples", "fuzz", "crates/demo"]
 
 [workspace.package]
@@ -8,7 +8,7 @@ edition = "2021"
 rust-version = "1.90"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-description = "modern Rust ecosystem for high-performance tools."
+description = "Modern Rust Ecosystem for high-performance tools."
 repository = "__repo_url__"
 homepage = "__repo_url__"
 authors = ["__user__"]
@@ -56,11 +56,3 @@ unimplemented = "deny"
 indexing_slicing = "deny"
 undocumented_unsafe_blocks = "deny"
 multiple_crate_versions = "allow"
-
-
-[profile.release]
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = true
-opt-level = 3

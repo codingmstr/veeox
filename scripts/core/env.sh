@@ -745,7 +745,9 @@ home_path () {
 open_path () {
 
     local p="${1:-}"
+
     [[ -n "${p}" ]] || die "open_path: missing path" 2
+    [[ -e "${p}" ]] || die "open_path: not found: ${p}" 2
 
     if is_wsl; then
 
@@ -753,11 +755,8 @@ open_path () {
             run wslview "${p}"
             return 0
         fi
-
         if command -v explorer.exe >/dev/null 2>&1; then
-            local wp=""
-            wp="$(wslpath -w "${p}" 2>/dev/null || printf '%s' "${p}")"
-            run explorer.exe "${wp}"
+            run explorer.exe "$(wslpath -w "${p}" 2>/dev/null || printf '%s' "${p}")"
             return 0
         fi
 
@@ -781,8 +780,8 @@ open_path () {
 
             if command -v cygstart >/dev/null 2>&1; then
                 run cygstart "${wp}"
-             else
-                cmd.exe /c start "" "${wp}" >/dev/null 2>&1 || die "open_path: failed" 2
+            else
+                cmd.exe /c start "" "${wp}" >/dev/null 2>&1 || die "open_path: failed to open: ${p}" 2
             fi
         ;;
         *)
