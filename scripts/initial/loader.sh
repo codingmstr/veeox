@@ -132,10 +132,13 @@ parse_global () {
     MODULE_CMD="h"
     MODULE_ARGS=()
 
+    local saw_help=0
+    local saw_version=0
+
     while [[ $# -gt 0 ]]; do
         case "${1}" in
-            -h|--help)      MODULE_CMD="h"; shift || true ;;
-            --version)      MODULE_CMD="v"; shift || true ;;
+            -h|--help)      saw_help=1; shift || true ;;
+            --version)      saw_version=1; shift || true ;;
             --yes|-y)       YES_ENV=1; shift || true ;;
             --quiet|-q)     QUIET_ENV=1; shift || true ;;
             --verbose|-v)   VERBOSE_ENV=1; shift || true ;;
@@ -144,6 +147,9 @@ parse_global () {
             *)              break ;;
         esac
     done
+
+    (( saw_help )) && { MODULE_CMD="h"; MODULE_ARGS=(); return 0; }
+    (( saw_version )) && { MODULE_CMD="v"; MODULE_ARGS=(); return 0; }
 
     if (( $# > 0 )); then
         MODULE_CMD="${1}"
@@ -207,6 +213,8 @@ dispatch () {
 
 }
 load () {
+
+    cd_root
 
     local old_trap="$(trap -p ERR 2>/dev/null || true)"
     if declare -F on_err >/dev/null 2>&1; then trap 'on_err "$?"' ERR; fi

@@ -239,6 +239,25 @@ parse_emit_array () {
     return 0
 
 }
+parse_is_reserved_key () {
+
+    local k="${1-}"
+
+    case "${k}" in
+        ""|kwargs|argv|schema|stype|sreq|sdef|sdef_has|set|alias_to|sdisp|order|pos_order|auto_order|auto_has_opt)
+            return 0
+        ;;
+        IFS|OPTIND|OPTARG|REPLY|PWD|OLDPWD|PATH|HOME|SHELL|UID|EUID|PPID|BASHPID)
+            return 0
+        ;;
+        ROOT_DIR|YES_ENV|QUIET_ENV|VERBOSE_ENV|MODULE_DIR|MODULE_CMD|MODULE_ARGS)
+            return 0
+        ;;
+    esac
+
+    return 1
+
+}
 parse_args__schema_build () {
 
     local -n __schema="${1}"
@@ -278,7 +297,6 @@ parse_args__schema_build () {
             req=1
             raw="${raw#:}"
         fi
-
         if [[ "${raw}" == *"="* ]]; then
             def_raw="${raw#*=}"
             raw="${raw%%=*}"
@@ -316,11 +334,7 @@ parse_args__schema_build () {
 
         fi
 
-        case "${nk}" in
-            argv|schema|stype|sreq|sdef|sdef_has|set|alias_to|sdisp|order|pos_order|auto_order|auto_has_opt|auto_has_value|auto_no_value|pos|spec|raw|names|canon|nk|kind|t|req|def_raw|def_has|name_list|nm|ak|i|pi|pn|pv|arg|key|val|next|k|tv|n|p|vv|x|parts|emit_scope|emit_order|raw_mode|pos_i|ai|arg2|key2|kn2|kk|nxt|IFS)
-                die "parse: key '${canon}' is reserved" 2
-            ;;
-        esac
+        parse_is_reserved_key "${nk}" && die "parse: key '${canon}' is reserved" 2
 
         if [[ "${t}" == "__auto__" ]]; then
 
