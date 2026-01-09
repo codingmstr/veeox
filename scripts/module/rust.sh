@@ -1,89 +1,5 @@
 #!/usr/bin/env bash
 
-codecov_upload () {
-
-    ensure git curl chmod mv mkdir
-
-    local file="${1}"
-    local flags="${2:-}"
-    local name="${3:-}"
-    local version="${4:-latest}"
-    local token="${5:-${CODECOV_TOKEN-}}"
-
-    if [[ -z "${token}" ]]; then
-        log "Codecov: CODECOV_TOKEN is missing -> skipping upload (common on fork PRs)."
-        return 0
-    fi
-
-    local os
-    local arch
-    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-    arch="$(uname -m)"
-
-    local dist="linux"
-    if [[ "${os}" == "darwin" ]]; then dist="macos"; fi
-    if [[ "${dist}" == "linux" && ( "${arch}" == "aarch64" || "${arch}" == "arm64" ) ]]; then dist="linux-arm64"; fi
-
-    [[ -n "${version}" ]] || version="latest"
-    [[ -n "${version}" && "${version}" != "latest" && "${version}" != v* ]] && version="v${version}"
-
-    local cache_dir="${ROOT_DIR}/.codecov/cache"
-    mkdir -p -- "${cache_dir}"
-
-    local resolved="${version}"
-
-    if [[ "${version}" == "latest" ]]; then
-
-        local latest_page=""
-        latest_page="$(curl -fsSL "https://cli.codecov.io/${dist}/latest" 2>/dev/null || true)"
-
-        local v=""
-        v="$(printf '%s\n' "${latest_page}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
-
-        [[ -n "${v}" ]] && resolved="${v}"
-
-    fi
-
-    local bin="${cache_dir}/codecov-${dist}-${resolved}"
-
-    if [[ ! -x "${bin}" ]]; then
-
-        local tmp="${bin}.tmp.$$"
-        rm -f -- "${tmp}" 2>/dev/null || true
-
-        local url_a="https://cli.codecov.io/${dist}/${resolved}/codecov"
-        local url_b="https://cli.codecov.io/${resolved}/${dist}/codecov"
-
-        if ! run curl -fsSL -o "${tmp}" "${url_a}"; then
-            run curl -fsSL -o "${tmp}" "${url_b}"
-        fi
-
-        run chmod +x "${tmp}"
-        run mv -f -- "${tmp}" "${bin}"
-
-    fi
-
-    run "${bin}" --version >/dev/null 2>&1
-
-    local -a up_args=(
-        --verbose
-        upload-process
-        --disable-search
-        --fail-on-error
-        -t "${token}"
-        -f "${file}"
-    )
-
-    [[ -n "${flags}" ]] && up_args+=( -F "${flags}" )
-    [[ -n "${name}"  ]] && up_args+=( -n "${name}" )
-
-    run "${bin}" "${up_args[@]}"
-
-    if [[ -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_SHA:-}" ]]; then
-        log "Codecov: https://app.codecov.io/gh/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
-    fi
-
-}
 stable_version () {
 
     tool_stable_version
@@ -356,6 +272,75 @@ run_workspace_publishable () {
     run_cargo "${command}" "${pkgs[@]}" "${extra[@]}" "$@"
 
 }
+codecov_upload () {
+
+    ensure curl chmod mv mkdir
+
+    local file="${1}"
+    local name="${2:-}"
+    local version="${3:-}"
+    local token="${4:-}"
+    local flags="${5:-}"
+
+    [[ -n "${flags}" ]] || flags="crates"
+    [[ -n "${name}" ]] || name="coverage-${GITHUB_RUN_ID:-local}"
+    [[ -n "${version}" ]] || version="latest"
+    [[ -n "${version}" && "${version}" != "latest" && "${version}" != v* ]] && version="v${version}"
+    [[ -n "${token}" ]] || token="${CODECOV_TOKEN}"
+
+    [[ -f "${file}" ]] || die "Codecov: file not found: ${file}" 2
+    [[ -n "${token}" ]] || die "Codecov: CODECOV_TOKEN is missing."
+
+    local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    local arch="$(uname -m)"
+    local dist="linux"
+
+    if [[ "${os}" == "darwin" ]]; then dist="macos"; fi
+    if [[ "${dist}" == "linux" && ( "${arch}" == "aarch64" || "${arch}" == "arm64" ) ]]; then dist="linux-arm64"; fi
+
+    local cache_dir="${ROOT_DIR}/.codecov/cache"
+    mkdir -p -- "${cache_dir}"
+
+    local resolved="${version}"
+    local bin="${cache_dir}/codecov-${dist}-${resolved}"
+
+    if [[ "${version}" == "latest" ]]; then
+
+        local latest_page="$(curl -fsSL "https://cli.codecov.io/${dist}/latest" 2>/dev/null || true)"
+        local v="$(printf '%s\n' "${latest_page}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+
+        [[ -n "${v}" ]] && resolved="${v}"
+        bin="${cache_dir}/codecov-${dist}-${resolved}"
+
+    fi
+    if [[ ! -x "${bin}" ]]; then
+
+        local tmp="${bin}.tmp.$$"
+        rm -f -- "${tmp}" 2>/dev/null || true
+
+        local url_a="https://cli.codecov.io/${dist}/${resolved}/codecov"
+        local url_b="https://cli.codecov.io/${resolved}/${dist}/codecov"
+
+        if ! run curl -fsSL -o "${tmp}" "${url_a}"; then
+            run curl -fsSL -o "${tmp}" "${url_b}"
+        fi
+
+        run chmod +x "${tmp}"
+        run mv -f -- "${tmp}" "${bin}"
+
+        run "${bin}" --version >/dev/null 2>&1
+
+    fi
+
+    local -a args=( --verbose upload-process --disable-search --fail-on-error -t "${token}" -f "${file}" )
+
+    [[ -n "${flags}" ]] && args+=( -F "${flags}" )
+    [[ -n "${name}"  ]] && args+=( -n "${name}" )
+
+    run "${bin}" "${args[@]}"
+    success "Ok: Codecov file upload successfully."
+
+}
 rust_usage () {
 
     printf '%s\n' \
@@ -612,6 +597,31 @@ cmd_fix_fmt_stable () {
     run_cargo fmt all-on "$@"
 
 }
+cmd_check_taplo () {
+
+    ensure taplo
+    run taplo fmt --check "$@"
+
+}
+cmd_fix_taplo () {
+
+    ensure taplo
+    run taplo fmt "$@"
+
+}
+cmd_check_audit () {
+
+    run_cargo deny check advisories bans licenses sources "$@"
+
+}
+cmd_fix_audit () {
+
+    local adv="${HOME}/.cargo/advisory-db"
+    [[ -d "${adv}" ]] && [[ ! -d "${adv}/.git" ]] && mv "${adv}" "${adv}.broken.$(date +%s)" || true
+
+    run_cargo audit fix "$@"
+
+}
 cmd_clippy () {
 
     run_workspace_publishable clippy features-on targets-on "$@"
@@ -629,115 +639,61 @@ cmd_bench () {
 }
 cmd_example () {
 
-    ensure cargo
+    source <(parse "$@" -- :name package p)
+    run_cargo run -p "${package:-${p:-examples}}" --example "${name}" "${kwargs[@]}"
 
-    local name="${1:-}"
-    [[ -n "${name}" ]] || die "Usage: example <name> [-p <package>] [-- <args...>]" 2
+}
+cmd_fix_ws () {
 
-    shift || true
+    ensure git perl
 
-    local pkg="examples"
-    local -a cargo_args=()
-    local -a prog_args=()
+    local f=""
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -p|--package)
-                shift || true
-                pkg="${1:-}"
-                [[ -n "${pkg}" ]] || die "Error: -p/--package requires a value" 2
-                shift || true
-            ;;
-            --package=*)
-                pkg="${1#*=}"
-                [[ -n "${pkg}" ]] || die "Error: --package requires a value" 2
-                shift || true
-            ;;
-            --)
-                shift || true
-                prog_args=( "$@" )
-                break
-            ;;
-            *)
-                cargo_args+=( "$1" )
-                shift || true
-            ;;
-        esac
-    done
+    while IFS= read -r -d '' f; do
 
-    local -a cmd=( run_cargo run -p "${pkg}" --example "${name}" )
+        perl -0777 -ne 'exit 1 if /\0/; exit 0' -- "${f}" 2>/dev/null || continue
+        perl -0777 -i -pe 's/[ \t]+$//mg if /[ \t]+$/m' -- "${f}"
 
-    cmd+=( "${cargo_args[@]}" )
-    [[ ${#prog_args[@]} -gt 0 ]] && cmd+=( -- "${prog_args[@]}" )
+    done < <(git ls-files -z)
 
-    "${cmd[@]}"
+}
+cmd_check_prettier () {
+
+    ensure node
+
+    run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --check \
+        ".github/**/*.{yml,yaml}" \
+        "**/*.md" \
+        ".prettierrc.yml" \
+        "$@"
+
+}
+cmd_fix_prettier () {
+
+    ensure node
+
+    run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --write \
+        ".github/**/*.{yml,yaml}" \
+        "**/*.md" \
+        ".prettierrc.yml" \
+        "$@"
 
 }
 cmd_hack () {
 
-    ensure cargo-hack
+    source <(parse "$@" -- depth:int=2 each_feature:bool)
 
-    local mode="powerset"
-    local depth="2"
-    local ws=1
-    local -a pass=()
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --each-feature)
-                mode="each"
-                shift || true
-            ;;
-            --powerset)
-                mode="powerset"
-                shift || true
-            ;;
-            --depth)
-                shift || true
-                depth="${1:-}"
-                [[ -n "${depth}" ]] || die "Error: --depth requires a value" 2
-                [[ "${depth}" =~ ^[0-9]+$ ]] || die "Error: --depth must be an integer" 2
-                shift || true
-            ;;
-            -p|--package|--package=*|--manifest-path|--manifest-path=*|--workspace|--workspace=*|--all)
-                ws=0
-                pass+=( "$1" )
-                shift || true
-            ;;
-            --)
-                shift || true
-                pass+=( "--" )
-                pass+=( "$@" )
-                break
-            ;;
-            *)
-                pass+=( "$1" )
-                shift || true
-            ;;
-        esac
-    done
-
-    local -a base=( hack check --keep-going )
-    (( ws )) && base+=( --workspace )
-
-    if [[ "${mode}" == "each" ]]; then
-        run_cargo "${base[@]}" --each-feature "${pass[@]}"
-        return $?
+    if (( each_feature )); then
+        run_workspace hack check --keep-going --each-feature "${kwargs[@]}"
+        return 0
     fi
 
-    run_cargo "${base[@]}" --feature-powerset --depth "${depth}" "${pass[@]}"
+    run_workspace hack check --keep-going --feature-powerset --depth "${depth}" "${kwargs[@]}"
 
 }
 cmd_fuzz () {
 
-    ensure cargo awk grep
-
-    local tc
-    tc="$(tool_nightly_version)"
-    rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -qx "${tc}" || run rustup toolchain install "${tc}" --profile minimal
-
-    local timeout="10" len="4096"
-    local have_max_total_time=0 have_max_len=0 in_post=0
+    local timeout="10" len="4096" have_max_total_time=0 have_max_len=0 in_post=0
     local -a pre=()
     local -a post=()
 
@@ -782,16 +738,16 @@ cmd_fuzz () {
         while IFS= read -r line; do
             [[ -n "${line}" ]] || continue
             targets+=( "${line}" )
-        done < <(cargo +"${tc}" fuzz list 2>/dev/null || true)
+        done < <(run_cargo fuzz --nightly list 2>/dev/null || true)
 
-        [[ "${#targets[@]}" -gt 0 ]] || die "No fuzz targets found. Run: cargo +${tc} fuzz init && cargo +${tc} fuzz add <name>" 2
+        [[ "${#targets[@]}" -gt 0 ]] || die "No fuzz targets found. Run: cargo fuzz init && cargo fuzz add <name>" 2
 
         local t=""
         for t in "${targets[@]}"; do
             if [[ "${#post[@]}" -gt 0 ]]; then
-                run cargo +"${tc}" fuzz run "${t}" "${pre[@]}" -- "${post[@]}" || die "Fuzzing failed: ${t}" 2
+                run_cargo fuzz --nightly run "${t}" "${pre[@]}" -- "${post[@]}" || die "Fuzzing failed: ${t}" 2
             else
-                run cargo +"${tc}" fuzz run "${t}" "${pre[@]}" || die "Fuzzing failed: ${t}" 2
+                run_cargo fuzz --nightly run "${t}" "${pre[@]}" || die "Fuzzing failed: ${t}" 2
             fi
         done
 
@@ -813,29 +769,16 @@ cmd_fuzz () {
 
     fi
     if [[ "${#post[@]}" -gt 0 ]]; then
-        run cargo +"${tc}" fuzz "${pre[@]}" -- "${post[@]}"
+        run_cargo fuzz --nightly "${pre[@]}" -- "${post[@]}"
         return $?
     fi
 
-    run cargo +"${tc}" fuzz "${pre[@]}"
+    run_cargo fuzz --nightly "${pre[@]}"
 
 }
 cmd_semver () {
 
-    ensure cargo-semver-checks git
-
-    local remote="${GIT_REMOTE:-origin}"
-    local baseline="${CARGO_SEMVER_CHECKS_BASELINE_REV:-${SEMVER_BASELINE:-}}"
-
-    if [[ "${1:-}" == --baseline=* ]]; then
-        baseline="${1#*=}"
-        shift || true
-    elif [[ "${1:-}" == "--baseline" ]]; then
-        shift || true
-        baseline="${1:-}"
-        [[ -n "${baseline}" ]] || die "semver: --baseline requires a value" 2
-        shift || true
-    fi
+    source <(parse "$@" -- baseline remote=origin)
 
     if [[ -z "${baseline}" ]]; then
 
@@ -844,9 +787,7 @@ cmd_semver () {
             local base="${GITHUB_BASE_REF:-}"
             [[ -n "${base}" ]] || die "semver: missing GITHUB_BASE_REF. Provide --baseline <rev>." 2
 
-            run git fetch --no-tags "${remote}" "${base}:refs/remotes/${remote}/${base}" >/dev/null 2>&1 || \
-                die "semver: failed to fetch ${remote}/${base}. Provide --baseline <rev>." 2
-
+            run git fetch --no-tags "${remote}" "${base}:refs/remotes/${remote}/${base}" >/dev/null 2>&1 || die "semver: failed to fetch." 2
             baseline="${remote}/${base}"
 
         elif [[ "${GITHUB_EVENT_NAME:-}" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]]; then
@@ -863,14 +804,13 @@ cmd_semver () {
             )"
 
             if [[ -z "${baseline}" ]]; then
-                log "semver: first stable release (no previous vMAJOR.MINOR.PATCH tag). Skipping."
+                log "semver: first stable release -> Skipping."
                 return 0
             fi
 
         else
 
-            local def=""
-            def="$(git symbolic-ref -q "refs/remotes/${remote}/HEAD" 2>/dev/null || true)"
+            local def="$(git symbolic-ref -q "refs/remotes/${remote}/HEAD" 2>/dev/null || true)"
             def="${def#refs/remotes/${remote}/}"
             [[ -n "${def}" ]] || def="main"
 
@@ -879,7 +819,7 @@ cmd_semver () {
             if git show-ref --verify --quiet "refs/remotes/${remote}/${def}"; then
                 baseline="${remote}/${def}"
             else
-                log "semver: no baseline branch found (${remote}/${def}). Skipping."
+                log "semver: no baseline branch found (${remote}/${def}) -> Skipping."
                 return 0
             fi
 
@@ -887,210 +827,80 @@ cmd_semver () {
     fi
 
     [[ -n "${baseline}" ]] || { log "semver: no baseline. Skipping."; return 0; }
-    git rev-parse --verify "${baseline}^{commit}" >/dev/null 2>&1 || die "semver: baseline '${baseline}' is not a valid commit/tag." 2
-
-    export CARGO_SEMVER_CHECKS_BASELINE_REV="${baseline}"
-    log "semver: baseline=${baseline}"
+    git rev-parse --verify "${baseline}^{commit}" >/dev/null 2>&1 || die "semver: baseline '${baseline}' is not a valid." 2
 
     local -a extra=()
-
-    if run_cargo semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev'; then
-        extra+=(--baseline-rev "${baseline}")
-    fi
-
-    run_cargo semver-checks "${extra[@]}" "$@"
+    run_cargo semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev' && extra+=(--baseline-rev "${baseline}")
+    run_cargo semver-checks "${extra[@]}" "${kwargs[@]}"
 
 }
 cmd_coverage () {
 
-    ensure cargo jq
-
-    local upload=0
-    local codecov_name=""
-    local codecov_token=""
-    local codecov_version=""
-    local codecov_flags=""
-    local mode="lcov"
-
-    local -a want_pkgs=()
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --upload)
-                upload=1
-                shift
-            ;;
-            --mode)
-                [[ -n "${2-}" ]] || die "Missing value for --mode" 2
-                mode="${2}"
-                shift 2
-            ;;
-            -p|--package)
-                [[ -n "${2-}" ]] || die "Missing value for ${1}" 2
-                want_pkgs+=( "${2}" )
-                shift 2 || true
-            ;;
-            --package=*)
-                [[ -n "${1#*=}" ]] || die "Missing value for --package" 2
-                want_pkgs+=( "${1#*=}" )
-                shift
-            ;;
-            --name)
-                codecov_name="${2-}"
-                shift 2 || true
-            ;;
-            --flags)
-                codecov_flags="${2-}"
-                shift 2 || true
-            ;;
-            --version)
-                codecov_version="${2-}"
-                shift 2 || true
-            ;;
-            --token)
-                codecov_token="${2-}"
-                shift 2 || true
-            ;;
-            --)
-                shift
-                break
-            ;;
-            *)
-                break
-            ;;
-        esac
-    done
-    case "${mode}" in
-        lcov|json|codecov) ;;
-        *) die "Invalid --mode: ${mode} (use: lcov|json|codecov)" 2 ;;
-    esac
-
-    if ! run_cargo llvm-cov --version >/dev/null 2>&1; then
-        log "cargo-llvm-cov is not installed."
-        log "Install:"
-        log "  rustup component add llvm-tools"
-        log "  cargo install cargo-llvm-cov"
-        exit 2
-    fi
-    if has rustup; then
-        if ! run rustup component list --installed 2>/dev/null | grep -Eq '^(llvm-tools|llvm-tools-preview)\b'; then
-            log "Missing Rust component: llvm-tools (or llvm-tools-preview)"
-            log "Install one of:"
-            log "  rustup component add llvm-tools"
-            log "  rustup component add llvm-tools-preview"
-            exit 2
-        fi
-    fi
+    ensure llvm-tools-preview jq
+    source <(parse "$@" -- mode=lcov name flags version token upload:bool package:list)
 
     local -a pkgs=()
+    local out=""
 
-    if [[ ${#want_pkgs[@]} -gt 0 ]]; then
+    if [[ ${#package[@]} -gt 0 ]]; then
 
         local -a ws_pkgs=()
-        mapfile -t ws_pkgs < <(cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].name')
+        mapfile -t ws_pkgs < <(run_cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].name')
 
         local -A ws_set=()
         local -A seen=()
         local x="" p=""
 
-        for x in "${ws_pkgs[@]-}"; do
-            ws_set["${x}"]=1
-        done
-        for p in "${want_pkgs[@]-}"; do
+        for x in "${ws_pkgs[@]-}"; do ws_set["${x}"]=1; done
+
+        for p in "${package[@]-}"; do
             [[ -n "${ws_set[${p}]-}" ]] || die "Unknown workspace package: ${p}" 2
             [[ -n "${seen[${p}]-}" ]] && continue
             seen["${p}"]=1
-            pkgs+=( "${p}" )
+            pkgs+=( -p "${p}" )
         done
 
         [[ ${#pkgs[@]} -gt 0 ]] || die "No packages selected" 2
 
     else
 
-        while IFS= read -r line; do pkgs+=( "${line}" ); done < <(publishable_pkgs)
+        while IFS= read -r line; do pkgs+=( -p "${line}" ); done < <(publishable_pkgs)
         [[ ${#pkgs[@]} -gt 0 ]] || die "No publishable workspace crates found" 2
 
     fi
 
-    local args=()
-    local p=""
-
-    for p in "${pkgs[@]-}"; do
-        args+=( -p "${p}" )
-    done
-
-    local out="${ROOT_DIR}/lcov.info"
-
-    if [[ "${mode}" == "codecov" ]]; then
+    if [[ "${mode}" == "codecov" || "${mode}" == "json" ]]; then
 
         out="${ROOT_DIR}/codecov.json"
-        run_cargo llvm-cov "${args[@]}" --all-targets --all-features --codecov --output-path "${out}" "$@"
-
-    elif [[ "${mode}" == "json" ]]; then
-
-        out="${ROOT_DIR}/coverage.json"
-        run_cargo llvm-cov "${args[@]}" --all-targets --all-features --json --output-path "${out}" "$@"
+        run_cargo llvm-cov "${pkgs[@]}" --all-targets --all-features --codecov --output-path "${out}" "${kwargs[@]}"
 
     else
 
-        run_cargo llvm-cov "${args[@]}" --all-targets --all-features --lcov --output-path "${out}" "$@"
+        out="${ROOT_DIR}/lcov.info"
+        run_cargo llvm-cov "${pkgs[@]}" --all-targets --all-features --lcov --output-path "${out}" "${kwargs[@]}"
 
     fi
 
-    if (( upload )); then
-
-        if [[ -z "${codecov_name}" ]]; then
-
-            if [[ ${#pkgs[@]} -eq 1 ]]; then
-                codecov_name="coverage-${pkgs[0]}"
-            else
-                codecov_name="coverage-${GITHUB_RUN_ID:-local}"
-            fi
-
-        fi
-        if [[ -z "${codecov_flags}" ]]; then
-
-            if [[ ${#pkgs[@]} -eq 1 ]]; then
-                codecov_flags="${pkgs[0]}"
-            else
-                codecov_flags="crates"
-            fi
-
-        fi
-
-        codecov_upload "${out}" "${codecov_flags}" "${codecov_name}" "${codecov_version}" "${codecov_token}"
-
-    fi
-
-    log "OK -> ${out}"
+    success "OK Codecov processed successfully -> ${out}"
+    (( upload )) && codecov_upload "${out}" "${name}" "${version}" "${token}" "${flags}"
 
 }
 cmd_spellcheck () {
 
-    ensure cargo head sed wc sort grep xargs
+    ensure head sed wc sort xargs
+    source <(parse "$@" -- file=spellcheck.dic)
 
-    if ! run_cargo spellcheck --version >/dev/null 2>&1; then
-        log "cargo-spellcheck is not installed."
-        log "Install: cargo install cargo-spellcheck"
-        exit 2
-    fi
+    file="${ROOT_DIR}/${file}"
+    [[ -f "${file}" ]] || die "spellcheck: invalid dic file ${file}" 2
 
-    local file="${ROOT_DIR}/spellcheck.dic"
-    ensure_file "${file}"
-
-    local first_line
-    first_line="$(head -n 1 "${file}" || true)"
-
-    if ! [[ "${first_line}" =~ ^[0-9]+$ ]]; then
-        die "Error: The first line of ${file} must be an integer word count, got: '${first_line}'" 2
-    fi
+    local first_line="$(head -n 1 "${file}" || true)"
+    [[ "${first_line}" =~ ^[0-9]+$ ]] || die "Error: The first line of ${file} must be an integer word count." 2
 
     local expected_count="${first_line}"
-    local actual_count
-    actual_count="$(sed '1d' "${file}" | wc -l | xargs)"
+    local actual_count="$(sed '1d' "${file}" | wc -l | xargs)"
 
     local sort_locale="$(tool_pick_sort_locale)"
-    local paths=("$@")
+    local -a paths=( "${kwargs[@]}" )
 
     if [[ "${expected_count}" != "${actual_count}" ]]; then
         die "Error: Word count mismatch. Expected ${expected_count}, got ${actual_count}." 2
@@ -1098,7 +908,7 @@ cmd_spellcheck () {
     if ! ( sed '1d' "${file}" | LC_ALL="${sort_locale}" sort -uc ) >/dev/null; then
         log "Dictionary is not sorted or has duplicates. Correct order is:"
         LC_ALL="${sort_locale}" sort -u <(sed '1d' "${file}")
-        exit 1
+        return 1
     fi
     if [[ ${#paths[@]} -eq 0 ]]; then
         shopt -s nullglob
@@ -1107,89 +917,252 @@ cmd_spellcheck () {
     fi
 
     run_cargo spellcheck --code 1 "${paths[@]}"
-
-    if grep -I --exclude-dir=.git --exclude-dir=target --exclude-dir=scripts -nRE '[[:blank:]]+$' .; then
-        die "Please remove trailing whitespace from these lines." 1
-    fi
-
     log "All matching files use a correct spell-checking format."
 
 }
-cmd_check_prettier () {
+cmd_version () {
 
-    ensure node
+    ensure jq
 
-    run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --check \
-        ".github/**/*.{yml,yaml}" \
-        "**/*.md" \
-        ".prettierrc.yml" \
-        "$@"
+    local name="${1:-}"
+    local meta="$(run_cargo metadata --no-deps --format-version 1)" || die "Error: failed to read cargo metadata." 2
 
-}
-cmd_fix_prettier () {
+    if [[ -z "${name}" ]]; then
 
-    ensure node
+        local ws_root="$(jq -r '.workspace_root' <<<"${meta}")"
+        local root_manifest="${ws_root}/Cargo.toml"
 
-    run npx -y prettier@3.3.3 --no-error-on-unmatched-pattern --write \
-        ".github/**/*.{yml,yaml}" \
-        "**/*.md" \
-        ".prettierrc.yml" \
-        "$@"
+        local v="$(jq -r --arg m "${root_manifest}" '
+            .packages[] | select(.manifest_path == $m) | .version
+        ' <<<"${meta}" 2>/dev/null || true)"
 
-}
-cmd_check_taplo () {
+        if [[ -z "${v}" || "${v}" == "null" ]]; then
 
-    ensure taplo
-    run taplo fmt --check "$@"
+            local id="$(jq -r '.workspace_members[0]' <<<"${meta}")"
 
-}
-cmd_fix_taplo () {
+            v="$(jq -r --arg id "${id}" '
+                .packages[] | select(.id == $id) | .version
+            ' <<<"${meta}")"
 
-    ensure taplo
-    run taplo fmt "$@"
+        fi
 
-}
-cmd_check_audit () {
+        [[ -n "${v}" && "${v}" != "null" ]] || die "Error: workspace version not found." 2
 
-    ensure cargo-deny
-    run_cargo deny check advisories bans licenses sources "$@"
+        printf '%s\n' "${v}"
+        return 0
 
-}
-cmd_fix_audit () {
-
-    ensure cargo-audit
-
-    local adv="${HOME}/.cargo/advisory-db"
-
-    if [[ -d "${adv}" ]] && [[ ! -d "${adv}/.git" ]]; then
-        mv "${adv}" "${adv}.broken.$(date +%s)" || true
     fi
 
-    run_cargo audit fix "$@"
+    local v="$(jq -r --arg n "${name}" '
+        .packages[] | select(.name == $n) | .version
+    ' <<<"${meta}" 2>/dev/null | head -n 1)"
+
+    [[ -n "${v}" && "${v}" != "null" ]] || die "Error: package ${name} not found." 2
+    printf '%s\n' "${v}"
 
 }
-cmd_fix_ws () {
+cmd_meta () {
 
-    ensure git perl
+    ensure jq tee
 
-    local f=""
+    local full=0
+    local mode="pretty"
+    local package=""
+    local out=""
+    local jq_color=0
+    local jq_compact=0
+    local only_published=0
+    local members_names=0
+    local registries=()
+    local registries_set=0
 
-    while IFS= read -r -d '' f; do
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            --full)
+                full=1
+                shift || true
+            ;;
+            --no-deps)
+                full=0
+                shift || true
+            ;;
+            -p|--package)
+                shift || true
+                package="${1:-}"
+                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
+                shift || true
+            ;;
+            --members)
+                mode="members"
+                shift || true
+            ;;
+            --names)
+                mode="members"
+                members_names=1
+                shift || true
+            ;;
+            --packages)
+                mode="packages"
+                shift || true
+            ;;
+            --only-publish)
+                only_published=1
+                shift || true
+            ;;
+            --registries|--registry)
+                shift || true
+                local raw="${1:-}"
+                [[ -n "${raw}" ]] || die "Error: --registries requires a value" 2
+                shift || true
 
-        perl -0777 -ne 'exit 1 if /\0/; exit 0' -- "${f}" 2>/dev/null || continue
-        perl -0777 -i -pe 's/[ \t]+$//mg if /[ \t]+$/m' -- "${f}"
+                registries_set=1
 
-    done < <(git ls-files -z)
+                local tmp="${raw// /}"
+                local parts=()
+                local old_ifs="${IFS}"
+
+                IFS=',' read -r -a parts <<< "${tmp}"
+                IFS="${old_ifs}"
+
+                local p=""
+                for p in "${parts[@]}"; do
+                    [[ -n "${p}" ]] || continue
+                    registries+=( "${p}" )
+                done
+            ;;
+            --compact|-c)
+                jq_compact=1
+                shift || true
+            ;;
+            --color|-C)
+                jq_color=1
+                shift || true
+            ;;
+            --out)
+                shift || true
+                out="${1:-}"
+                [[ -n "${out}" ]] || die "Error: --out requires a value" 2
+                shift || true
+            ;;
+            --)
+                shift || true
+                break
+            ;;
+            *)
+                break
+            ;;
+        esac
+    done
+
+    if [[ -n "${package}" && "${mode}" == "members" ]]; then
+        die "Error: -p/--package cannot be used with --members/--names" 2
+    fi
+    if (( registries_set )); then
+        only_published=1
+    fi
+    if (( only_published )) && (( registries_set == 0 )); then
+        registries=( "crates-io" )
+    fi
+
+    local cargo_args=( --format-version=1 )
+    local jq_args=()
+
+    (( full )) || cargo_args+=( --no-deps )
+    (( jq_compact )) && jq_args+=( -c )
+    (( jq_color )) && jq_args+=( -C )
+
+    local jq_prelude=""
+    local publishable_filter=""
+    local regs_json="[]"
+    local filter="."
+    local base_ws_local='
+        . as $m
+        | ($m.workspace_members) as $ws
+        | $m.packages[]
+        | select(.id as $id | $ws | index($id) != null)
+        | select(.source == null)
+    '
+
+    if (( only_published )); then
+
+        regs_json="$(printf '%s\n' "${registries[@]}" | jq -Rn '[inputs]')"
+        jq_args+=( --argjson regs "${regs_json}" )
+
+        jq_prelude='
+            def publish_allows:
+                if .publish == null then
+                    true
+                elif .publish == false then
+                    false
+                elif (.publish | type) != "array" then
+                    false
+                elif (.publish | length) == 0 then
+                    false
+                elif ($regs | index("*")) != null then
+                    true
+                else
+                    (.publish | any(. as $r | $regs | index($r) != null))
+                end;
+        '
+
+        publishable_filter='
+            | select(publish_allows)
+        '
+
+    fi
+
+    if [[ -n "${package}" ]]; then
+
+        jq_args+=( --arg p "${package}" )
+
+        if (( only_published )); then
+            filter="${jq_prelude}${base_ws_local}${publishable_filter} | select(.name == \$p)"
+        else
+            filter=".packages[] | select(.name == \$p)"
+        fi
+
+    else
+
+        local stream=""
+
+        if (( only_published )); then
+            stream="${jq_prelude}${base_ws_local}${publishable_filter}"
+        else
+            stream=".packages[]"
+        fi
+
+        case "${mode}" in
+
+            members)
+                jq_args+=( -r )
+                if (( members_names )); then
+                    filter="${stream} | .name"
+                else
+                    filter="${stream} | .id"
+                fi
+            ;;
+            packages)
+                filter="${stream} | {name, version, publish, manifest_path}"
+            ;;
+            *)
+                filter="${stream}"
+            ;;
+
+        esac
+
+    fi
+
+    if [[ -n "${out}" ]]; then
+        run_cargo metadata "${cargo_args[@]}" | tee "${out}" | jq "${jq_args[@]}" "${filter}"
+        return 0
+    fi
+
+    run_cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
 
 }
 cmd_doctor () {
 
-    ensure
-
-    is_ci || {
-        export RUSTFLAGS='-Dwarnings'
-        export RUST_BACKTRACE='1'
-    }
+    is_ci || { export RUSTFLAGS='-Dwarnings'; export RUST_BACKTRACE='1'; }
 
     local ok=0 warn=0 fail=0
     local distro="" wsl="no" ci="no"
@@ -1415,254 +1388,6 @@ cmd_doctor () {
     return 0
 
 }
-cmd_meta () {
-
-    ensure cargo jq
-
-    local full=0
-    local mode="pretty"
-    local package=""
-    local out=""
-    local jq_color=0
-    local jq_compact=0
-    local only_published=0
-    local members_names=0
-    local registries=()
-    local registries_set=0
-
-    while [[ $# -gt 0 ]]; do
-        case "${1}" in
-            --full)
-                full=1
-                shift || true
-            ;;
-            --no-deps)
-                full=0
-                shift || true
-            ;;
-            -p|--package)
-                shift || true
-                package="${1:-}"
-                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
-                shift || true
-            ;;
-            --members)
-                mode="members"
-                shift || true
-            ;;
-            --names)
-                mode="members"
-                members_names=1
-                shift || true
-            ;;
-            --packages)
-                mode="packages"
-                shift || true
-            ;;
-            --only-publish)
-                only_published=1
-                shift || true
-            ;;
-            --registries|--registry)
-                shift || true
-                local raw="${1:-}"
-                [[ -n "${raw}" ]] || die "Error: --registries requires a value" 2
-                shift || true
-
-                registries_set=1
-
-                local tmp="${raw// /}"
-                local parts=()
-                local old_ifs="${IFS}"
-
-                IFS=',' read -r -a parts <<< "${tmp}"
-                IFS="${old_ifs}"
-
-                local p=""
-                for p in "${parts[@]}"; do
-                    [[ -n "${p}" ]] || continue
-                    registries+=( "${p}" )
-                done
-            ;;
-            --compact|-c)
-                jq_compact=1
-                shift || true
-            ;;
-            --color|-C)
-                jq_color=1
-                shift || true
-            ;;
-            --out)
-                shift || true
-                out="${1:-}"
-                [[ -n "${out}" ]] || die "Error: --out requires a value" 2
-                shift || true
-            ;;
-            --)
-                shift || true
-                break
-            ;;
-            *)
-                break
-            ;;
-        esac
-    done
-
-    if [[ -n "${package}" && "${mode}" == "members" ]]; then
-        die "Error: -p/--package cannot be used with --members/--names" 2
-    fi
-    if (( registries_set )); then
-        only_published=1
-    fi
-    if (( only_published )) && (( registries_set == 0 )); then
-        registries=( "crates-io" )
-    fi
-
-    local cargo_args=( --format-version=1 )
-    local jq_args=()
-
-    (( full )) || cargo_args+=( --no-deps )
-    (( jq_compact )) && jq_args+=( -c )
-    (( jq_color )) && jq_args+=( -C )
-
-    local jq_prelude=""
-    local publishable_filter=""
-    local regs_json="[]"
-    local filter="."
-    local base_ws_local='
-        . as $m
-        | ($m.workspace_members) as $ws
-        | $m.packages[]
-        | select(.id as $id | $ws | index($id) != null)
-        | select(.source == null)
-    '
-
-    if (( only_published )); then
-
-        regs_json="$(printf '%s\n' "${registries[@]}" | jq -Rn '[inputs]')"
-        jq_args+=( --argjson regs "${regs_json}" )
-
-        jq_prelude='
-            def publish_allows:
-                if .publish == null then
-                    true
-                elif .publish == false then
-                    false
-                elif (.publish | type) != "array" then
-                    false
-                elif (.publish | length) == 0 then
-                    false
-                elif ($regs | index("*")) != null then
-                    true
-                else
-                    (.publish | any(. as $r | $regs | index($r) != null))
-                end;
-        '
-
-        publishable_filter='
-            | select(publish_allows)
-        '
-
-    fi
-
-    if [[ -n "${package}" ]]; then
-
-        jq_args+=( --arg p "${package}" )
-
-        if (( only_published )); then
-            filter="${jq_prelude}${base_ws_local}${publishable_filter} | select(.name == \$p)"
-        else
-            filter=".packages[] | select(.name == \$p)"
-        fi
-
-    else
-
-        local stream=""
-
-        if (( only_published )); then
-            stream="${jq_prelude}${base_ws_local}${publishable_filter}"
-        else
-            stream=".packages[]"
-        fi
-
-        case "${mode}" in
-
-            members)
-                jq_args+=( -r )
-                if (( members_names )); then
-                    filter="${stream} | .name"
-                else
-                    filter="${stream} | .id"
-                fi
-            ;;
-            packages)
-                filter="${stream} | {name, version, publish, manifest_path}"
-            ;;
-            *)
-                filter="${stream}"
-            ;;
-
-        esac
-
-    fi
-
-    if [[ -n "${out}" ]]; then
-        ensure tee
-        run_cargo metadata "${cargo_args[@]}" | tee "${out}" | jq "${jq_args[@]}" "${filter}"
-        return 0
-    fi
-
-    run_cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
-
-}
-cmd_version () {
-
-    ensure cargo jq
-
-    local name="${1:-}"
-    local meta=""
-
-    meta="$(cargo metadata --no-deps --format-version 1)" || die "Error: failed to read cargo metadata." 2
-
-    if [[ -z "${name}" ]]; then
-
-        local ws_root="" root_manifest=""
-        ws_root="$(jq -r '.workspace_root' <<<"${meta}")"
-        root_manifest="${ws_root}/Cargo.toml"
-
-        local v=""
-        v="$(jq -r --arg m "${root_manifest}" '
-            .packages[] | select(.manifest_path == $m) | .version
-        ' <<<"${meta}" 2>/dev/null || true)"
-
-        if [[ -z "${v}" || "${v}" == "null" ]]; then
-
-            local id=""
-            id="$(jq -r '.workspace_members[0]' <<<"${meta}")"
-
-            v="$(jq -r --arg id "${id}" '
-                .packages[] | select(.id == $id) | .version
-            ' <<<"${meta}")"
-
-        fi
-
-        [[ -n "${v}" && "${v}" != "null" ]] || die "Error: workspace version not found." 2
-
-        printf '%s\n' "${v}"
-        return 0
-
-    fi
-
-    local v=""
-    v="$(jq -r --arg n "${name}" '
-        .packages[] | select(.name == $n) | .version
-    ' <<<"${meta}" 2>/dev/null | head -n 1)"
-
-    [[ -n "${v}" && "${v}" != "null" ]] || die "Error: package ${name} not found." 2
-
-    printf '%s\n' "${v}"
-
-}
 cmd_is_publishable () {
 
     ensure grep tr
@@ -1689,9 +1414,7 @@ cmd_is_published () {
     [[ -n "${name}" ]] || die "Error: crate name is required." 2
     [[ "$(cmd_is_publishable "${name}")" == "yes" ]] || die "Error: package ${name} is not publishable." 2
 
-    local version=""
-    version="$(cmd_version "${name}")"
-
+    local version="$(cmd_version "${name}")"
     local name_lc="${name,,}"
     local n="${#name_lc}"
     local path=""
@@ -1701,11 +1424,8 @@ cmd_is_published () {
     elif (( n == 3 )); then path="3/${name_lc:0:1}/${name_lc}"
     else path="${name_lc:0:2}/${name_lc:2:2}/${name_lc}"; fi
 
-    local tmp=""
-    tmp="$(mktemp)"
-
-    local code=""
-    code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
+    local tmp="$(mktemp)"
+    local code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
 
     if [[ "${code}" == "404" ]]; then
         rm -f "${tmp}"
@@ -1728,22 +1448,17 @@ cmd_is_published () {
 }
 cmd_can_publish () {
 
-    ensure
-
     local name="${1:-}"
 
     if [[ -n "${name}" ]]; then
-
         [[ "$(cmd_is_published "${name}")" == "yes" ]] && { echo "no"; return 0; }
-
         echo "yes"
         return 0
-
     fi
 
     local p=""
-
     local -a pkgs=()
+
     while IFS= read -r line; do pkgs+=( "${line}" ); done < <(publishable_pkgs)
     [[ ${#pkgs[@]} -gt 0 ]] || { echo "no"; return 0; }
 
@@ -1755,8 +1470,6 @@ cmd_can_publish () {
 
 }
 cmd_publish () {
-
-    ensure cargo
 
     local dry_run=0
     local allow_dirty=0
@@ -1921,8 +1634,6 @@ cmd_publish () {
 }
 cmd_yank () {
 
-    ensure cargo
-
     local package=""
     local version=""
     local undo=0
@@ -2079,7 +1790,7 @@ cmd_ci_stable () {
     printf "\n💥 Test ...\n\n"
     cmd_test "$@"
 
-    printf "\n✅ CI STABLE Succeeded.\n\n"
+    success "\nCI STABLE Succeeded.\n\n"
 
 }
 cmd_ci_nightly () {
@@ -2092,7 +1803,7 @@ cmd_ci_nightly () {
     printf "\n💥 Test Nightly ...\n\n"
     cmd_test --nightly "$@"
 
-    printf "\n✅ CI NIGHTLY Succeeded.\n\n"
+    success "\nCI NIGHTLY Succeeded.\n\n"
 
 }
 cmd_ci_msrv () {
@@ -2105,7 +1816,7 @@ cmd_ci_msrv () {
     printf "\n💥 Test Msrv ...\n\n"
     cmd_test --msrv "$@"
 
-    printf "\n✅ CI MSRV Succeeded.\n\n"
+    success "\nCI MSRV Succeeded.\n\n"
 
 }
 cmd_ci_doc () {
@@ -2118,7 +1829,7 @@ cmd_ci_doc () {
     printf "\n💥 Test Doc ...\n\n"
     cmd_test_doc "$@"
 
-    printf "\n✅ CI DOC Succeeded.\n\n"
+    success "\nCI DOC Succeeded.\n\n"
 
 }
 cmd_ci_lint () {
@@ -2132,7 +1843,7 @@ cmd_ci_lint () {
     cmd_check_audit "$@"
 
     printf "\n💥 Check Format ...\n\n"
-    cmd_check_fmt --nightly "$@"
+    cmd_check_fmt "$@"
 
     printf "\n💥 Check Taplo ...\n\n"
     cmd_check_taplo "$@"
@@ -2143,7 +1854,7 @@ cmd_ci_lint () {
     printf "\n💥 Check Spellcheck ...\n\n"
     cmd_spellcheck "$@"
 
-    printf "\n✅ CI LINT Succeeded.\n\n"
+    success "\nCI LINT Succeeded.\n\n"
 
 }
 cmd_ci_hack () {
@@ -2153,7 +1864,7 @@ cmd_ci_hack () {
     printf "\n💥 Hack ...\n\n"
     cmd_hack "$@"
 
-    printf "\n✅ CI HACK Succeeded.\n\n"
+    success "\nCI HACK Succeeded.\n\n"
 
 }
 cmd_ci_fuzz () {
@@ -2163,7 +1874,7 @@ cmd_ci_fuzz () {
     printf "\n💥 Fuzz ...\n\n"
     cmd_fuzz "$@"
 
-    printf "\n✅ CI FUZZ Succeeded.\n\n"
+    success "\nCI FUZZ Succeeded.\n\n"
 
 }
 cmd_ci_semver () {
@@ -2173,7 +1884,7 @@ cmd_ci_semver () {
     printf "\n💥 Semver ...\n\n"
     cmd_semver "$@"
 
-    printf "\n✅ CI SEMVER Succeeded.\n\n"
+    success "\nCI SEMVER Succeeded.\n\n"
 
 }
 cmd_ci_coverage () {
@@ -2183,7 +1894,7 @@ cmd_ci_coverage () {
     printf "\n💥 Coverage ...\n\n"
     cmd_coverage "$@"
 
-    printf "\n✅ CI Coverage Succeeded.\n\n"
+    success "\nCI Coverage Succeeded.\n\n"
 
 }
 cmd_ci_publish () {
@@ -2193,7 +1904,7 @@ cmd_ci_publish () {
     printf "\n💥 Publish ...\n\n"
     cmd_publish "$@"
 
-    printf "\n✅ CI PUBLISH Succeeded.\n\n"
+    success "\nCI PUBLISH Succeeded.\n\n"
 
 }
 cmd_ci_local () {
@@ -2231,7 +1942,7 @@ cmd_ci_local () {
     cmd_check_audit
 
     printf "\n💥 Check Format ...\n\n"
-    cmd_check_fmt --nightly
+    cmd_check_fmt
 
     printf "\n💥 Check Taplo ...\n\n"
     cmd_check_taplo
@@ -2254,6 +1965,6 @@ cmd_ci_local () {
     printf "\n💥 Coverage ...\n\n"
     cmd_coverage
 
-    printf "\n✅ CI Pipeline Succeeded.\n\n"
+    success "\nCI Pipeline Succeeded.\n\n"
 
 }
