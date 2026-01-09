@@ -801,28 +801,18 @@ cmd_changelog () {
     local tag="${1:-unreleased}"
     local msg="${2:-}"
 
-    local file="${ROOT_DIR}/CHANGELOG.md"
-    local day="" tmp="" header="" block="" sha="" first=""
-
+    [[ "${tag}" =~ ^v[0-9] ]] && tag="${tag#v}"
     [[ -n "${msg}" ]] || msg="Track ${tag} release."
 
     msg="${msg//$'\r'/ }"
     msg="${msg//$'\n'/ }"
 
-    day="$(date -u +%Y-%m-%d)"
+    local day="$(date -u +%Y-%m-%d)"
+    local header="## 💥 ${tag} ( ${day} )"
+    local block="${header}"$'\n\n'"- ${msg}"$'\n'
+    local file="${ROOT_DIR}/CHANGELOG.md"
 
-    [[ "${tag}" =~ ^v[0-9] ]] && tag="${tag#v}"
-    header="## 💥 ${tag} ( ${day} )"
-
-    has git && sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
-
-    if [[ -n "${sha}" ]]; then
-        block="${header}"$'\n\n'"- ${msg} ( commit: ${sha} )"$'\n'
-    else
-        block="${header}"$'\n\n'"- ${msg}"$'\n'
-    fi
-
-    tmp="$(mktemp)" || die "changelog: mktemp failed" 2
+    local tmp="$(mktemp "${TMPDIR:-/tmp}/vx.XXXXXX")"
 
     if [[ -f "${file}" ]]; then
 
@@ -835,7 +825,8 @@ cmd_changelog () {
             tmp="$(mktemp)" || die "changelog: mktemp failed" 2
         fi
 
-        first="$(tail -n +2 "${file}" 2>/dev/null | grep -m1 -E '^[[:space:]]*## ' || true)"
+        local first="$(tail -n +2 "${file}" 2>/dev/null | grep -m1 -E '^[[:space:]]*## ' || true)"
+
         if [[ "${first}" == "${header}" ]]; then
             log "changelog: already written -> skip"
             return 0

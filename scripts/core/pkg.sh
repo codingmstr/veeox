@@ -193,9 +193,7 @@ pkg_map_one () {
 
     case "${os}" in
         linux)
-            local mgr=""
-            mgr="$(pkg_linux_mgr 2>/dev/null || true)"
-
+            local mgr="$(pkg_linux_mgr 2>/dev/null || true)"
             case "${want}" in
                 python|python3|python3.*) printf '%s' "python3" ; return 0 ;;
                 pip|pip3)
@@ -206,26 +204,30 @@ pkg_map_one () {
                     esac
                     return 0
                 ;;
-                awk)    printf '%s' "gawk" ; return 0 ;;
-                head|tail|sort|wc|chmod|mkdir|date|readlink|realpath|stat) printf '%s' "coreutils" ; return 0 ;;
-                find|xargs) printf '%s' "findutils" ; return 0 ;;
+                awk)        printf '%s' "gawk" ; return 0 ;;
+                find|xargs)  printf '%s' "findutils" ; return 0 ;;
+                grep|sed|git|perl|jq|curl) printf '%s' "${want}" ; return 0 ;;
+                mv|cp|rm|ln|mkdir|rmdir|cat|touch|head|tail|cut|tr|sort|uniq|wc|date|sleep|mktemp|basename|dirname|realpath|printf|tee|chmod|readlink|stat)
+                    printf '%s' "coreutils"
+                    return 0
+                ;;
                 llvm-dev|llvm-devel|llvm-config)
                     case "${mgr}" in
-                        apt)     printf '%s' "llvm-dev" ;;
+                        apt)           printf '%s' "llvm-dev" ;;
                         dnf|yum|zypper) printf '%s' "llvm-devel" ;;
-                        pacman)  printf '%s' "llvm" ;;
-                        apk)     printf '%s' "llvm-dev" ;;
-                        *)       printf '%s' "${want}" ;;
+                        pacman)        printf '%s' "llvm" ;;
+                        apk)           printf '%s' "llvm-dev" ;;
+                        *)             printf '%s' "${want}" ;;
                     esac
                     return 0
                 ;;
                 libclang-dev|libclang-devel)
                     case "${mgr}" in
-                        apt)     printf '%s' "libclang-dev" ;;
+                        apt)           printf '%s' "libclang-dev" ;;
                         dnf|yum|zypper) printf '%s' "libclang-devel" ;;
-                        pacman)  printf '%s' "libclang" ;;
-                        apk)     printf '%s' "clang-dev" ;;
-                        *)       printf '%s' "${want}" ;;
+                        pacman)        printf '%s' "libclang" ;;
+                        apk)           printf '%s' "clang-dev" ;;
+                        *)             printf '%s' "${want}" ;;
                     esac
                     return 0
                 ;;
@@ -235,28 +237,49 @@ pkg_map_one () {
             case "${want}" in
                 python|python3|python3.*) printf '%s' "python" ; return 0 ;;
                 pip|pip3)                 printf '%s' "python" ; return 0 ;;
-
-                awk)      printf '%s' "gawk" ; return 0 ;;
-                sed)      printf '%s' "gnu-sed" ; return 0 ;;
-                grep)     printf '%s' "grep" ; return 0 ;;
-                find|xargs) printf '%s' "findutils" ; return 0 ;;
-
-                head|tail|sort|wc|chmod|mkdir) printf '%s' "coreutils" ; return 0 ;;
-                date|stat|readlink|realpath)    printf '%s' "coreutils" ; return 0 ;;
-
-                llvm-dev|llvm-devel|llvm-config|libclang-dev|libclang-devel|clang-dev|llvm|libclang|clang) printf '%s' "llvm" ; return 0 ;;
+                awk)        printf '%s' "gawk" ; return 0 ;;
+                sed)        printf '%s' "gnu-sed" ; return 0 ;;
+                grep)       printf '%s' "grep" ; return 0 ;;
+                find|xargs)  printf '%s' "findutils" ; return 0 ;;
+                head|tail|sort|wc|chmod|mkdir|date|readlink|realpath|stat)
+                    printf '%s' "coreutils"
+                    return 0
+                ;;
+                git|jq)
+                    printf '%s' "${want}"
+                    return 0
+                ;;
+                perl|curl)
+                    pkg_has_cmd "${want}" && { printf '%s' ""; return 0; }
+                    printf '%s' "${want}"
+                    return 0
+                ;;
+                mktemp|mv|tr|tee)
+                    pkg_has_cmd "${want}" && { printf '%s' ""; return 0; }
+                    printf '%s' "coreutils"
+                    return 0
+                ;;
+                llvm-dev|llvm-devel|llvm-config|libclang-dev|libclang-devel|clang-dev|llvm|libclang|clang)
+                    printf '%s' "llvm"
+                    return 0
+                ;;
             esac
         ;;
         windows)
             case "${want}" in
                 python|python3|python3.*) printf '%s' "python" ; return 0 ;;
                 pip|pip3)                 printf '%s' "python-pip" ; return 0 ;;
-                awk)      printf '%s' "gawk" ; return 0 ;;
-                sed)      printf '%s' "sed" ; return 0 ;;
-                grep)     printf '%s' "grep" ; return 0 ;;
-                find|xargs) printf '%s' "findutils" ; return 0 ;;
-                head|tail|sort|wc|chmod|mkdir|date|readlink|realpath|stat) printf '%s' "coreutils" ; return 0 ;;
-                llvm-dev|llvm-devel|llvm-config|libclang-dev|libclang-devel|clang-dev|llvm|libclang|clang) printf '%s' "llvm" ; return 0 ;;
+                awk)        printf '%s' "gawk" ; return 0 ;;
+                find|xargs)  printf '%s' "findutils" ; return 0 ;;
+                sed|grep|git|perl|jq|curl) printf '%s' "${want}" ; return 0 ;;
+                mv|cp|rm|ln|mkdir|rmdir|cat|touch|head|tail|cut|tr|sort|uniq|wc|date|sleep|mktemp|basename|dirname|realpath|printf|tee|chmod|readlink|stat)
+                    printf '%s' "coreutils"
+                    return 0
+                ;;
+                llvm-dev|llvm-devel|llvm-config|libclang-dev|libclang-devel|clang-dev|llvm|libclang|clang)
+                    printf '%s' "llvm"
+                    return 0
+                ;;
             esac
         ;;
     esac
@@ -326,13 +349,11 @@ pkg_mac_link_cmd () {
     local bin_dir="${HOME}/.local/bin"
     local link_path="${bin_dir}/${name}"
 
-    local alt_path=""
-    alt_path="$(command -v -- "${alt}" 2>/dev/null || true)"
+    local alt_path="$(command -v -- "${alt}" 2>/dev/null || true)"
     [[ -n "${alt_path}" ]] || return 0
 
     if [[ -L "${link_path}" ]]; then
-        local cur=""
-        cur="$(readlink "${link_path}" 2>/dev/null || true)"
+        local cur="$(readlink "${link_path}" 2>/dev/null || true)"
         [[ "${cur}" == "${alt_path}" ]] && return 0
     fi
 
@@ -378,18 +399,19 @@ pkg_mac_gnu_shim () {
             grep)     pkg_mac_link_cmd ggrep     grep ;;
             find)     pkg_mac_link_cmd gfind     find ;;
             xargs)    pkg_mac_link_cmd gxargs    xargs ;;
-
             head)     pkg_mac_link_cmd ghead     head ;;
             tail)     pkg_mac_link_cmd gtail     tail ;;
             sort)     pkg_mac_link_cmd gsort     sort ;;
             wc)       pkg_mac_link_cmd gwc       wc ;;
             chmod)    pkg_mac_link_cmd gchmod    chmod ;;
             mkdir)    pkg_mac_link_cmd gmkdir    mkdir ;;
-
             date)     pkg_mac_link_cmd gdate     date ;;
             stat)     pkg_mac_link_cmd gstat     stat ;;
             readlink) pkg_mac_link_cmd greadlink readlink ;;
             realpath) pkg_mac_link_cmd grealpath realpath ;;
+            tr)       pkg_mac_link_cmd gtr       tr ;;
+            tee)      pkg_mac_link_cmd gtee      tee ;;
+            mktemp)   pkg_mac_link_cmd gmktemp   mktemp ;;
         esac
     done
 
@@ -428,7 +450,6 @@ pkg_verify_wants () {
             fi
             continue
         fi
-
         if [[ "${w}" == "pip" || "${w}" == "pip3" ]]; then
             pkg_has_cmd pip || pkg_has_cmd pip3 || die "pkg: missing pip after install" 2
             continue
@@ -491,8 +512,7 @@ pkg_install_linux () {
     local -a pkgs=( "$@" )
     (( ${#pkgs[@]} )) || die "pkg_install_linux: missing package name(s)" 2
 
-    local mgr=""
-    mgr="$(pkg_linux_mgr)" || true
+    local mgr="$(pkg_linux_mgr)" || true
     [[ -n "${mgr}" ]] || die "Linux: no supported package manager found (apt/dnf/yum/pacman/zypper/apk)." 2
 
     pkg_linux_install "${mgr}" "${pkgs[@]}"
@@ -559,9 +579,7 @@ ensure_pkg () {
     (( QUIET_ENV || quiet )) && eff_quiet=1
     (( VERBOSE_ENV || verbose )) && eff_verbose=1
 
-    local os=""
-    os="$(os_name)"
-
+    local os="$(os_name)"
     local -a pkgs=() uniq_pkgs=()
     pkg_map_list pkgs "${wants[@]}"
     pkg_uniq_list uniq_pkgs "${pkgs[@]}"

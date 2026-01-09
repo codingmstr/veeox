@@ -312,7 +312,9 @@ rust_usage () {
         '    clippy              Run lints on crates/ only (strict)' \
         '    clippy-strict       Run lints on the full workspace (very strict)' \
         '' \
-        '    spellcheck          Spellcheck docs and text files' \
+        '    spell-check         Spellcheck docs and text files' \
+        '    spell-add           Add item into spellcheck dic file' \
+        '    spell-remove        Remove item from spellcheck dic file' \
         '    coverage            Generate coverage reports (lcov + codecov json)' \
         '' \
         '    check-audit         Security advisory checks (policy gate)' \
@@ -344,7 +346,8 @@ rust_usage () {
         '    ci-semver           CI SEMVER pipeline (check semver)' \
         '    ci-publish          CI publish gate then publish (full checks + publish)' \
         '' \
-        '    ci-local            Run a local CI full workflow ci pipline ( full ci-xxx features )'
+        '    ci-local            Run a local CI full workflow ci pipline ( full ci-xxx features )' \
+        ''
 
 }
 
@@ -830,7 +833,7 @@ cmd_coverage () {
     success "OK Codecov processed successfully -> ${out}"
 
 }
-cmd_spellcheck () {
+cmd_spell_check () {
 
     ensure head sed wc sort xargs
     source <(parse "$@" -- file=spellcheck.dic)
@@ -863,6 +866,101 @@ cmd_spellcheck () {
 
     run_cargo spellcheck --code 1 "${paths[@]}"
     success "All matching files use a correct spell-checking format."
+
+}
+cmd_spell_update () {
+
+    source <(parse "$@" -- file action=add)
+
+    local -a items=( "${kwargs[@]}" )
+    (( ${#items[@]} )) || return 0
+
+    [[ -n "${file}" ]] || file="spellcheck.dic"
+    file="${ROOT_DIR}/${file}"
+    ensure_file "${file}"
+
+    local tmp_words="$(mktemp "${file}.words.XXXXXX" 2>/dev/null || printf '%s' "${file}.words.$$")"
+    local tmp_out="$(mktemp "${file}.out.XXXXXX" 2>/dev/null || printf '%s' "${file}.out.$$")"
+
+    awk '
+        NR>=2 {
+            sub(/\r$/, "")
+            sub(/^[ \t]+/, "")
+            sub(/[ \t]+$/, "")
+            if ($0 != "") print
+        }
+    ' "${file}" 2>/dev/null > "${tmp_words}"
+
+    case "${action}" in
+        add)
+            printf '%s\n' "${items[@]}" | awk '
+                {
+                    sub(/\r$/, "")
+                    sub(/^[ \t]+/, "")
+                    sub(/[ \t]+$/, "")
+                    if ($0 != "") print
+                }
+            ' >> "${tmp_words}"
+
+            LC_ALL=C sort -u -o "${tmp_words}" "${tmp_words}"
+        ;;
+        remove)
+            local tmp_rm="$(mktemp "${file}.rm.XXXXXX" 2>/dev/null || printf '%s' "${file}.rm.$$")"
+            local tmp_filt="$(mktemp "${file}.filt.XXXXXX" 2>/dev/null || printf '%s' "${file}.filt.$$")"
+
+            printf '%s\n' "${items[@]}" | awk '
+                {
+                    sub(/\r$/, "")
+                    sub(/^[ \t]+/, "")
+                    sub(/[ \t]+$/, "")
+                    if ($0 != "") print
+                }
+            ' | LC_ALL=C sort -u > "${tmp_rm}"
+
+            awk '
+                NR==FNR { rm[$0]=1; next }
+                !($0 in rm) && $0 != "" { print }
+            ' "${tmp_rm}" "${tmp_words}" > "${tmp_filt}"
+
+            mv -f -- "${tmp_filt}" "${tmp_words}"
+            LC_ALL=C sort -u -o "${tmp_words}" "${tmp_words}"
+
+            rm -f -- "${tmp_rm}" 2>/dev/null || true
+        ;;
+        *)
+            rm -f -- "${tmp_words}" "${tmp_out}" 2>/dev/null || true
+            die "cmd_spell_update: invalid action '${action}'" 2
+        ;;
+    esac
+
+    local count="$(wc -l < "${tmp_words}" | tr -d '[:space:]')"
+    [[ -n "${count}" ]] || count="0"
+
+    {
+        printf '%s\n' "${count}"
+        cat -- "${tmp_words}"
+    } > "${tmp_out}" || {
+        rm -f -- "${tmp_words}" "${tmp_out}" 2>/dev/null || true
+        die "cmd_spell_update: write failed" 2
+    }
+
+    mv -f -- "${tmp_out}" "${file}" || {
+        rm -f -- "${tmp_words}" "${tmp_out}" 2>/dev/null || true
+        die "cmd_spell_update: update failed" 2
+    }
+
+    rm -f -- "${tmp_words}" 2>/dev/null || true
+    return 0
+
+}
+cmd_spell_add () {
+
+    cmd_spell_update spellcheck.dic add "$@"
+
+}
+cmd_spell_remove () {
+
+    cmd_spell_update spellcheck.dic remove "$@"
 
 }
 cmd_semver () {
@@ -1594,17 +1692,17 @@ cmd_doctor () {
 
 cmd_ensure () {
 
-    info "Ensure OS Tools ..."
+    info_ln "Ensure OS Tools ..."
     ensure jq perl grep curl clang llvm-config libclang-dev hunspell awk tail sed sort head wc xargs find git node
-    success "OS Tools Installed\n"
+    success_ln "OS Tools Installed\n"
 
-    info "Ensure Rustup Tools ..."
+    info_ln "Ensure Rustup Tools ..."
     ensure cargo rustfmt clippy llvm-tools-preview
-    success "Rustup Tools Installed\n"
+    success_ln "Rustup Tools Installed\n"
 
-    info "Ensure Cargo Tools ..."
+    info_ln "Ensure Cargo Tools ..."
     ensure cargo-deny cargo-audit cargo-spellcheck cargo-llvm-cov taplo cargo-nextest cargo-hack cargo-fuzz cargo-ci-cache-clean cargo-semver-checks
-    success "Cargo Tools Installed\n"
+    success_ln "Cargo Tools Installed\n"
 
     trap 'cmd_clean_cache >/dev/null 2>&1 || true' EXIT
 
@@ -1613,187 +1711,187 @@ cmd_ci_stable () {
 
     cmd_ensure
 
-    info "Check ...\n"
+    info_ln "Check ...\n"
     cmd_check "$@"
 
-    info "Test ...\n"
+    info_ln "Test ...\n"
     cmd_test "$@"
 
-    success "CI STABLE Succeeded.\n"
+    success_ln "CI STABLE Succeeded.\n"
 
 }
 cmd_ci_nightly () {
 
     cmd_ensure
 
-    info "Check Nightly ...\n"
+    info_ln "Check Nightly ...\n"
     cmd_check --nightly "$@"
 
-    info "Test Nightly ...\n"
+    info_ln "Test Nightly ...\n"
     cmd_test --nightly "$@"
 
-    success "CI NIGHTLY Succeeded.\n"
+    success_ln "CI NIGHTLY Succeeded.\n"
 
 }
 cmd_ci_msrv () {
 
     cmd_ensure
 
-    info "Check Msrv ...\n"
+    info_ln "Check Msrv ...\n"
     cmd_check --msrv "$@"
 
-    info "Test Msrv ...\n"
+    info_ln "Test Msrv ...\n"
     cmd_test --msrv "$@"
 
-    success "CI MSRV Succeeded.\n"
+    success_ln "CI MSRV Succeeded.\n"
 
 }
 cmd_ci_doc () {
 
     cmd_ensure
 
-    info "Check Doc ...\n"
+    info_ln "Check Doc ...\n"
     cmd_check_doc "$@"
 
-    info "Test Doc ...\n"
+    info_ln "Test Doc ...\n"
     cmd_test_doc "$@"
 
-    success "CI DOC Succeeded.\n"
+    success_ln "CI DOC Succeeded.\n"
 
 }
 cmd_ci_lint () {
 
     cmd_ensure
 
-    info "Clippy ...\n"
+    info_ln "Clippy ...\n"
     cmd_clippy "$@"
 
-    info "Check Audit ...\n"
+    info_ln "Check Audit ...\n"
     cmd_check_audit "$@"
 
-    info "Check Format ...\n"
+    info_ln "Check Format ...\n"
     cmd_check_fmt "$@"
 
-    info "Check Taplo ...\n"
+    info_ln "Check Taplo ...\n"
     cmd_check_taplo "$@"
 
-    info "Check Prettier ...\n"
+    info_ln "Check Prettier ...\n"
     cmd_check_prettier "$@"
 
-    info "Check Spellcheck ...\n"
-    cmd_spellcheck "$@"
+    info_ln "Check Spellcheck ...\n"
+    cmd_spell_check "$@"
 
-    success "CI LINT Succeeded.\n"
+    success_ln "CI LINT Succeeded.\n"
 
 }
 cmd_ci_hack () {
 
     cmd_ensure
 
-    info "Hack ...\n"
+    info_ln "Hack ...\n"
     cmd_hack "$@"
 
-    success "CI HACK Succeeded.\n"
+    success_ln "CI HACK Succeeded.\n"
 
 }
 cmd_ci_fuzz () {
 
     cmd_ensure
 
-    info "Fuzz ...\n"
+    info_ln "Fuzz ...\n"
     cmd_fuzz "$@"
 
-    success "CI FUZZ Succeeded.\n"
+    success_ln "CI FUZZ Succeeded.\n"
 
 }
 cmd_ci_semver () {
 
     cmd_ensure
 
-    info "Semver ...\n"
+    info_ln "Semver ...\n"
     cmd_semver "$@"
 
-    success "CI SEMVER Succeeded.\n"
+    success_ln "CI SEMVER Succeeded.\n"
 
 }
 cmd_ci_coverage () {
 
     cmd_ensure
 
-    info "Coverage ...\n"
+    info_ln "Coverage ...\n"
     cmd_coverage "$@"
 
-    success "CI Coverage Succeeded.\n"
+    success_ln "CI Coverage Succeeded.\n"
 
 }
 cmd_ci_publish () {
 
     cmd_ensure
 
-    info "Publish ...\n"
+    info_ln "Publish ...\n"
     cmd_publish "$@"
 
-    success "CI PUBLISH Succeeded.\n"
+    success_ln "CI PUBLISH Succeeded.\n"
 
 }
 cmd_ci_local () {
 
     cmd_ensure
 
-    info "Check ...\n"
+    info_ln "Check ...\n"
     cmd_check
 
-    info "Test ...\n"
+    info_ln "Test ...\n"
     cmd_test
 
-    info "Check Nightly ...\n"
+    info_ln "Check Nightly ...\n"
     cmd_check --nightly
 
-    info "Test Nightly ...\n"
+    info_ln "Test Nightly ...\n"
     cmd_test --nightly
 
-    info "Check Msrv ...\n"
+    info_ln "Check Msrv ...\n"
     cmd_check --msrv
 
-    info "Test Msrv ...\n"
+    info_ln "Test Msrv ...\n"
     cmd_test --msrv
 
-    info "Check Doc ...\n"
+    info_ln "Check Doc ...\n"
     cmd_check_doc
 
-    info "Test Doc ...\n"
+    info_ln "Test Doc ...\n"
     cmd_test_doc
 
-    info "Clippy ...\n"
+    info_ln "Clippy ...\n"
     cmd_clippy
 
-    info "Check Audit ...\n"
+    info_ln "Check Audit ...\n"
     cmd_check_audit
 
-    info "Check Format ...\n"
+    info_ln "Check Format ...\n"
     cmd_check_fmt
 
-    info "Check Taplo ...\n"
+    info_ln "Check Taplo ...\n"
     cmd_check_taplo
 
-    info "Check Prettier ...\n"
+    info_ln "Check Prettier ...\n"
     cmd_check_prettier
 
-    info "Check Spellcheck ...\n"
-    cmd_spellcheck
+    info_ln "Check Spellcheck ...\n"
+    cmd_spell_check
 
-    info "Hack ...\n"
+    info_ln "Hack ...\n"
     cmd_hack
 
-    info "Fuzz ...\n"
+    info_ln "Fuzz ...\n"
     cmd_fuzz
 
-    info "Semver ...\n"
+    info_ln "Semver ...\n"
     cmd_semver
 
-    info "Coverage ...\n"
+    info_ln "Coverage ...\n"
     cmd_coverage
 
-    success "CI Pipeline Succeeded.\n"
+    success_ln "CI Pipeline Succeeded.\n"
 
 }

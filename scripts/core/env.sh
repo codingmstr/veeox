@@ -38,43 +38,81 @@ info () {
 
     (( QUIET_ENV )) && return 0
 
-    local pre="" suf=""
-    pre="$(colorize reset 2)"
-    suf="$(colorize reset 2)"
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
 
     local IFS=' '
-    printf '\n%b\n' "${pre}💥 $*${suf}" >&2
+    printf '%b\n' "${pre}💥 $*${suf}" >&2
 
 }
 success () {
 
     (( QUIET_ENV )) && return 0
 
-    local pre="" suf=""
-    pre="$(colorize reset 2)"
-    suf="$(colorize reset 2)"
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
 
     local IFS=' '
-    printf '\n%b\n' "${pre}✅ $*${suf}" >&2
+    printf '%b\n' "${pre}✅ $*${suf}" >&2
 
 }
 warn () {
 
     (( QUIET_ENV )) && return 0
 
-    local pre="" suf=""
-    pre="$(colorize reset 2)"
-    suf="$(colorize reset 2)"
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
+
+    local IFS=' '
+    printf '%b\n' "${pre}⚠️ $*${suf}" >&2
+
+}
+error () {
+
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
+
+    local IFS=' '
+    printf '%b\n' "${pre}❌ $*${suf}" >&2
+
+}
+info_ln () {
+
+    (( QUIET_ENV )) && return 0
+
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
+
+    local IFS=' '
+    printf '\n%b\n' "${pre}💥 $*${suf}" >&2
+
+}
+success_ln () {
+
+    (( QUIET_ENV )) && return 0
+
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
+
+    local IFS=' '
+    printf '\n%b\n' "${pre}✅ $*${suf}" >&2
+
+}
+warn_ln () {
+
+    (( QUIET_ENV )) && return 0
+
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
 
     local IFS=' '
     printf '\n%b\n' "${pre}⚠️ $*${suf}" >&2
 
 }
-error () {
+error_ln () {
 
-    local pre="" suf=""
-    pre="$(colorize reset 2)"
-    suf="$(colorize reset 2)"
+    local pre="$(colorize reset 2)"
+    local suf="$(colorize reset 2)"
 
     local IFS=' '
     printf '\n%b\n' "${pre}❌ $*${suf}" >&2
@@ -117,7 +155,7 @@ die () {
     local code="${2:-1}"
 
     [[ "${code}" =~ ^[0-9]+$ ]] || code=1
-    [[ -n "${msg}" ]] && error "${msg}"
+    [[ -n "${msg}" ]] && printf '%s\n' "❌ ${msg}" >&2
 
     if [[ "${-}" == *i* && "${BASH_SOURCE[0]-}" != "${0-}" ]]; then
         return "${code}"
