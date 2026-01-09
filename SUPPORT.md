@@ -4,8 +4,8 @@ Need help `__NAME__`? Here is the fastest path to a solution 👇
 
 ## Where to go?
 
-| I need to...                      | Go to...                           |
-| :-------------------------------- | :--------------------------------- |
+| I need to...                      | Go to...                             |
+| :-------------------------------- | :----------------------------------- |
 | Ask “How do I…?” or discuss ideas | Discussions (`__discussions_url__`)  |
 | Report a reproducible bug         | Issues (`__issues_url__`)            |
 | Report a security vulnerability   | Security Policy (`__security_url__`) |

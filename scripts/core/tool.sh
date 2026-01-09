@@ -89,6 +89,14 @@ tool_sort_ver () {
     LC_ALL="${loc}" "${sbin}" -V
 
 }
+tool_sort_uniq () {
+
+    local loc="$(tool_pick_sort_locale)"
+    local sbin="$(tool_pick_sort_bin)"
+
+    LC_ALL="${loc}" "${sbin}" -u
+
+}
 tool_normalize_version () {
 
     local tc="${1:-}"

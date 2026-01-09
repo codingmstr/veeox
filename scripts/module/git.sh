@@ -535,7 +535,7 @@ git_usage () {
         "    --tag <tag>              Tag name (auto normalizes to va.b.c if semver)" \
         "    --release                Will push a new tag with current auto tag in project" \
         "    --force                  Force push (with lease) + overwrite tag" \
-        "    --log                    Prepend CHANGELOG entry (requires tag/release)" \
+        "    --changelog              Prepend CHANGELOG entry (requires tag/release)" \
         "" \
         "changelog" \
         "    --tag <tag>              Tag name (auto normalizes to va.b.c if semver)" \
@@ -573,7 +573,7 @@ git_usage () {
         "    --token-env <VAR>        Token env var name (default: GITHUB_TOKEN)" \
         "    --tag <tag>              Tag name (auto normalizes to va.b.c if semver)" \
         "    --force                  Force push (with lease) + overwrite tag" \
-        "    --log                    Prepend CHANGELOG entry (requires tag/release)" \
+        "    --changelog              Prepend CHANGELOG entry (requires tag/release)" \
         "" \
         "remove-release" \
         "    --tag <tag>              Tag name (auto normalizes to va.b.c if semver)" \

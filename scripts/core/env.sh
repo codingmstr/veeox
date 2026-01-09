@@ -39,11 +39,11 @@ info () {
     (( QUIET_ENV )) && return 0
 
     local pre="" suf=""
-    pre="$(colorize blue 2)"
+    pre="$(colorize reset 2)"
     suf="$(colorize reset 2)"
 
     local IFS=' '
-    printf '%s\n' "${pre}💎 $*${suf}" >&2
+    printf '\n%b\n' "${pre}💥 $*${suf}" >&2
 
 }
 success () {
@@ -51,11 +51,11 @@ success () {
     (( QUIET_ENV )) && return 0
 
     local pre="" suf=""
-    pre="$(colorize green 2)"
+    pre="$(colorize reset 2)"
     suf="$(colorize reset 2)"
 
     local IFS=' '
-    printf '%s\n' "${pre}✅ $*${suf}" >&2
+    printf '\n%b\n' "${pre}✅ $*${suf}" >&2
 
 }
 warn () {
@@ -63,36 +63,21 @@ warn () {
     (( QUIET_ENV )) && return 0
 
     local pre="" suf=""
-    pre="$(colorize yellow 2)"
+    pre="$(colorize reset 2)"
     suf="$(colorize reset 2)"
 
     local IFS=' '
-    printf '%s\n' "${pre}⚠️ $*${suf}" >&2
+    printf '\n%b\n' "${pre}⚠️ $*${suf}" >&2
 
 }
 error () {
 
     local pre="" suf=""
-    pre="$(colorize red 2)"
+    pre="$(colorize reset 2)"
     suf="$(colorize reset 2)"
 
     local IFS=' '
-    printf '%s\n' "${pre}❌ $*${suf}" >&2
-
-}
-die () {
-
-    local msg="${1-}"
-    local code="${2:-1}"
-
-    [[ "${code}" =~ ^[0-9]+$ ]] || code=1
-    [[ -n "${msg}" ]] && error "${msg}"
-
-    if [[ "${-}" == *i* && "${BASH_SOURCE[0]-}" != "${0-}" ]]; then
-        return "${code}"
-    fi
-
-    exit "${code}"
+    printf '\n%b\n' "${pre}❌ $*${suf}" >&2
 
 }
 print () {
@@ -123,7 +108,22 @@ log () {
 
     local IFS=' '
     (( $# )) || { printf '\n' >&2; return 0; }
-    printf '%s\n' "$*" >&2
+    printf '%b\n' "$*" >&2
+
+}
+die () {
+
+    local msg="${1-}"
+    local code="${2:-1}"
+
+    [[ "${code}" =~ ^[0-9]+$ ]] || code=1
+    [[ -n "${msg}" ]] && error "${msg}"
+
+    if [[ "${-}" == *i* && "${BASH_SOURCE[0]-}" != "${0-}" ]]; then
+        return "${code}"
+    fi
+
+    exit "${code}"
 
 }
 input () {
@@ -518,6 +518,16 @@ is_main () {
 is_ci () {
 
     [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${GITLAB_CI:-}" || -n "${BUILDKITE:-}" || -n "${TF_BUILD:-}" ]]
+
+}
+is_ci_pull () {
+    
+    is_ci && [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]
+
+}
+is_ci_push () {
+    
+    is_ci && [[ "${GITHUB_EVENT_NAME:-}" == "push" && "${GITHUB_REF:-}" == refs/tags/v* ]]
 
 }
 is_wsl () {

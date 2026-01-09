@@ -136,7 +136,7 @@ run_cargo () {
 }
 run_workspace () {
 
-    local command="${1:-}" features=0 targets=0 no_deps=0 all=0 workspace=1 a=""
+    local command="${1:-}" features=0 targets=0 no_deps=0 all=0 workspace=1 a="" nested=""
     local -a extra=()
 
     [[ -n "${command}" ]] || die "run_workspace: missing sub-command" 2
@@ -156,6 +156,10 @@ run_workspace () {
     fi
     if [[ "${1-}" == "all-on" || "${1-}" == "all-off" ]]; then
         [[ "${1}" == "all-on" ]] && all=1
+        shift || true
+    fi
+    if (( workspace )) && [[ "${command}" == "nextest" || "${command}" == "hack" ]]; then
+        nested="${1}"
         shift || true
     fi
 
@@ -193,11 +197,15 @@ run_workspace () {
     (( all )) && extra+=( --all )
 
     if (( ! workspace || all )); then
-        run_cargo "${command}" "${extra[@]}" "$@"
+        [[ -n "${nested}" ]] &&
+            run_cargo "${command}" "${nested}" "${extra[@]}" "$@" ||
+            run_cargo "${command}" "${extra[@]}" "$@"
         return 0
     fi
 
-    run_cargo "${command}" --workspace "${extra[@]}" "$@"
+    [[ -n "${nested}" ]] &&
+        run_cargo "${command}" "${nested}" --workspace "${extra[@]}" "$@" ||
+        run_cargo "${command}" --workspace "${extra[@]}" "$@"
 
 }
 run_workspace_publishable () {
@@ -270,75 +278,6 @@ run_workspace_publishable () {
     (( ${#pkgs[@]} )) || die "No publishable workspace crates found" 2
 
     run_cargo "${command}" "${pkgs[@]}" "${extra[@]}" "$@"
-
-}
-codecov_upload () {
-
-    ensure curl chmod mv mkdir
-
-    local file="${1}"
-    local name="${2:-}"
-    local version="${3:-}"
-    local token="${4:-}"
-    local flags="${5:-}"
-
-    [[ -n "${flags}" ]] || flags="crates"
-    [[ -n "${name}" ]] || name="coverage-${GITHUB_RUN_ID:-local}"
-    [[ -n "${version}" ]] || version="latest"
-    [[ -n "${version}" && "${version}" != "latest" && "${version}" != v* ]] && version="v${version}"
-    [[ -n "${token}" ]] || token="${CODECOV_TOKEN}"
-
-    [[ -f "${file}" ]] || die "Codecov: file not found: ${file}" 2
-    [[ -n "${token}" ]] || die "Codecov: CODECOV_TOKEN is missing."
-
-    local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-    local arch="$(uname -m)"
-    local dist="linux"
-
-    if [[ "${os}" == "darwin" ]]; then dist="macos"; fi
-    if [[ "${dist}" == "linux" && ( "${arch}" == "aarch64" || "${arch}" == "arm64" ) ]]; then dist="linux-arm64"; fi
-
-    local cache_dir="${ROOT_DIR}/.codecov/cache"
-    mkdir -p -- "${cache_dir}"
-
-    local resolved="${version}"
-    local bin="${cache_dir}/codecov-${dist}-${resolved}"
-
-    if [[ "${version}" == "latest" ]]; then
-
-        local latest_page="$(curl -fsSL "https://cli.codecov.io/${dist}/latest" 2>/dev/null || true)"
-        local v="$(printf '%s\n' "${latest_page}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
-
-        [[ -n "${v}" ]] && resolved="${v}"
-        bin="${cache_dir}/codecov-${dist}-${resolved}"
-
-    fi
-    if [[ ! -x "${bin}" ]]; then
-
-        local tmp="${bin}.tmp.$$"
-        rm -f -- "${tmp}" 2>/dev/null || true
-
-        local url_a="https://cli.codecov.io/${dist}/${resolved}/codecov"
-        local url_b="https://cli.codecov.io/${resolved}/${dist}/codecov"
-
-        if ! run curl -fsSL -o "${tmp}" "${url_a}"; then
-            run curl -fsSL -o "${tmp}" "${url_b}"
-        fi
-
-        run chmod +x "${tmp}"
-        run mv -f -- "${tmp}" "${bin}"
-
-        run "${bin}" --version >/dev/null 2>&1
-
-    fi
-
-    local -a args=( --verbose upload-process --disable-search --fail-on-error -t "${token}" -f "${file}" )
-
-    [[ -n "${flags}" ]] && args+=( -F "${flags}" )
-    [[ -n "${name}"  ]] && args+=( -n "${name}" )
-
-    run "${bin}" "${args[@]}"
-    success "Ok: Codecov file upload successfully."
 
 }
 rust_usage () {
@@ -579,22 +518,22 @@ cmd_open_doc () {
 }
 cmd_check_fmt () {
 
-    run_cargo fmt all-on --nightly -- --check "$@"
+    run_cargo fmt --nightly --all -- --check "$@"
 
 }
 cmd_fix_fmt () {
 
-    run_cargo fmt all-on --nightly "$@"
+    run_cargo fmt --nightly --all "$@"
 
 }
 cmd_check_fmt_stable () {
 
-    run_cargo fmt all-on -- --check "$@"
+    run_cargo fmt --all -- --check "$@"
 
 }
 cmd_fix_fmt_stable () {
 
-    run_cargo fmt all-on "$@"
+    run_cargo fmt --all "$@"
 
 }
 cmd_check_taplo () {
@@ -776,64 +715,6 @@ cmd_fuzz () {
     run_cargo fuzz --nightly "${pre[@]}"
 
 }
-cmd_semver () {
-
-    source <(parse "$@" -- baseline remote=origin)
-
-    if [[ -z "${baseline}" ]]; then
-
-        if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
-
-            local base="${GITHUB_BASE_REF:-}"
-            [[ -n "${base}" ]] || die "semver: missing GITHUB_BASE_REF. Provide --baseline <rev>." 2
-
-            run git fetch --no-tags "${remote}" "${base}:refs/remotes/${remote}/${base}" >/dev/null 2>&1 || die "semver: failed to fetch." 2
-            baseline="${remote}/${base}"
-
-        elif [[ "${GITHUB_EVENT_NAME:-}" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]]; then
-
-            run git fetch --tags --force --prune "${remote}" >/dev/null 2>&1 || true
-
-            local cur="${GITHUB_REF_NAME}"
-
-            baseline="$(
-                git tag --list 'v*' --sort=-v:refname |
-                grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
-                grep -F -x -v -- "${cur}" |
-                head -n 1 || true
-            )"
-
-            if [[ -z "${baseline}" ]]; then
-                log "semver: first stable release -> Skipping."
-                return 0
-            fi
-
-        else
-
-            local def="$(git symbolic-ref -q "refs/remotes/${remote}/HEAD" 2>/dev/null || true)"
-            def="${def#refs/remotes/${remote}/}"
-            [[ -n "${def}" ]] || def="main"
-
-            run git fetch --no-tags "${remote}" "${def}:refs/remotes/${remote}/${def}" >/dev/null 2>&1 || true
-
-            if git show-ref --verify --quiet "refs/remotes/${remote}/${def}"; then
-                baseline="${remote}/${def}"
-            else
-                log "semver: no baseline branch found (${remote}/${def}) -> Skipping."
-                return 0
-            fi
-
-        fi
-    fi
-
-    [[ -n "${baseline}" ]] || { log "semver: no baseline. Skipping."; return 0; }
-    git rev-parse --verify "${baseline}^{commit}" >/dev/null 2>&1 || die "semver: baseline '${baseline}' is not a valid." 2
-
-    local -a extra=()
-    run_cargo semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev' && extra+=(--baseline-rev "${baseline}")
-    run_cargo semver-checks "${extra[@]}" "${kwargs[@]}"
-
-}
 cmd_coverage () {
 
     ensure llvm-tools-preview jq
@@ -881,8 +762,72 @@ cmd_coverage () {
 
     fi
 
+    if (( upload )); then
+
+        ensure curl chmod mv mkdir
+
+        [[ -n "${flags}" ]] || flags="crates"
+        [[ -n "${name}" ]] || name="coverage-${GITHUB_RUN_ID:-local}"
+
+        [[ -n "${version}" ]] || version="latest"
+        [[ -n "${version}" && "${version}" != "latest" && "${version}" != v* ]] && version="v${version}"
+
+        [[ -f "${out}" ]] || die "Codecov: file not found: ${out}" 2
+        [[ -n "${token}" ]] || token="${CODECOV_TOKEN}"
+        [[ -n "${token}" ]] || die "Codecov: CODECOV_TOKEN is missing."
+
+        local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        local arch="$(uname -m)"
+        local dist="linux"
+
+        if [[ "${os}" == "darwin" ]]; then dist="macos"; fi
+        if [[ "${dist}" == "linux" && ( "${arch}" == "aarch64" || "${arch}" == "arm64" ) ]]; then dist="linux-arm64"; fi
+
+        local cache_dir="${ROOT_DIR}/.codecov/cache"
+        mkdir -p -- "${cache_dir}"
+
+        local resolved="${version}"
+        local bin="${cache_dir}/codecov-${dist}-${resolved}"
+
+        if [[ "${version}" == "latest" ]]; then
+
+            local latest_page="$(curl -fsSL "https://cli.codecov.io/${dist}/latest" 2>/dev/null || true)"
+            local v="$(printf '%s\n' "${latest_page}" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+
+            [[ -n "${v}" ]] && resolved="${v}"
+            bin="${cache_dir}/codecov-${dist}-${resolved}"
+
+        fi
+        if [[ ! -x "${bin}" ]]; then
+
+            local tmp="${bin}.tmp.$$"
+            rm -f -- "${tmp}" 2>/dev/null || true
+
+            local url_a="https://cli.codecov.io/${dist}/${resolved}/codecov"
+            local url_b="https://cli.codecov.io/${resolved}/${dist}/codecov"
+
+            if ! run curl -fsSL -o "${tmp}" "${url_a}"; then
+                run curl -fsSL -o "${tmp}" "${url_b}"
+            fi
+
+            run chmod +x "${tmp}"
+            run mv -f -- "${tmp}" "${bin}"
+
+            run "${bin}" --version >/dev/null 2>&1
+
+        fi
+
+        local -a args=( --verbose upload-process --disable-search --fail-on-error -t "${token}" -f "${out}" )
+
+        [[ -n "${flags}" ]] && args+=( -F "${flags}" )
+        [[ -n "${name}"  ]] && args+=( -n "${name}" )
+
+        run "${bin}" "${args[@]}"
+        success "Ok: Codecov file upload successfully."
+
+    fi
+
     success "OK Codecov processed successfully -> ${out}"
-    (( upload )) && codecov_upload "${out}" "${name}" "${version}" "${token}" "${flags}"
 
 }
 cmd_spellcheck () {
@@ -917,7 +862,66 @@ cmd_spellcheck () {
     fi
 
     run_cargo spellcheck --code 1 "${paths[@]}"
-    log "All matching files use a correct spell-checking format."
+    success "All matching files use a correct spell-checking format."
+
+}
+cmd_semver () {
+
+    source <(parse "$@" -- baseline remote=origin)
+
+    if [[ -z "${baseline}" ]]; then
+
+        if is_ci_pull; then
+
+            local base="${GITHUB_BASE_REF:-}"
+            [[ -n "${base}" ]] || die "semver: missing GITHUB_BASE_REF. Provide --baseline <rev>." 2
+
+            run git fetch --no-tags "${remote}" "${base}:refs/remotes/${remote}/${base}" >/dev/null 2>&1 || die "semver: failed to fetch." 2
+            baseline="${remote}/${base}"
+
+        elif is_ci_push; then
+
+            run git fetch --tags --force --prune "${remote}" >/dev/null 2>&1 || true
+
+            local cur="${GITHUB_REF_NAME:-}"
+
+            baseline="$(
+                git tag --list 'v*' --sort=-v:refname |
+                grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
+                grep -F -x -v -- "${cur}" |
+                head -n 1 || true
+            )"
+
+            if [[ -z "${baseline}" ]]; then
+                log "semver: first stable release -> Skipping."
+                return 0
+            fi
+
+        else
+
+            local def="$(git symbolic-ref -q "refs/remotes/${remote}/HEAD" 2>/dev/null || true)"
+            def="${def#refs/remotes/${remote}/}"
+            [[ -n "${def}" ]] || def="main"
+
+            run git fetch --no-tags "${remote}" "${def}:refs/remotes/${remote}/${def}" >/dev/null 2>&1 || true
+
+            if git show-ref --verify --quiet "refs/remotes/${remote}/${def}"; then
+                baseline="${remote}/${def}"
+            else
+                log "semver: no baseline branch found (${remote}/${def}) -> Skipping."
+                return 0
+            fi
+
+        fi
+    fi
+
+    [[ -n "${baseline}" ]] || { log "semver: no baseline. Skipping."; return 0; }
+    git rev-parse --verify "${baseline}^{commit}" >/dev/null 2>&1 || die "semver: baseline '${baseline}' is not a valid." 2
+
+    local -a extra=()
+    run_cargo semver-checks -h 2>/dev/null | grep -q -- '--baseline-rev' && extra+=(--baseline-rev "${baseline}")
+
+    run_cargo semver-checks "${extra[@]}" "${kwargs[@]}"
 
 }
 cmd_version () {
@@ -959,6 +963,207 @@ cmd_version () {
 
     [[ -n "${v}" && "${v}" != "null" ]] || die "Error: package ${name} not found." 2
     printf '%s\n' "${v}"
+
+}
+cmd_is_publishable () {
+
+    ensure grep tr
+    source <(parse "$@" -- :name)
+
+    local needle="$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]')"
+
+    if publishable_pkgs | tr '[:upper:]' '[:lower:]' | grep -Fxq -- "${needle}"; then
+        printf '%s\n' "yes"
+        return 0
+    fi
+
+    printf '%s\n' "no"
+    return 1
+
+}
+cmd_is_published () {
+
+    ensure grep curl
+    source <(parse "$@" -- :name)
+
+    [[ "$(cmd_is_publishable "${name}")" == "yes" ]] || die "Error: package ${name} is not publishable." 2
+
+    local version="$(cmd_version "${name}")"
+    local name_lc="${name,,}"
+    local n="${#name_lc}"
+    local path=""
+
+    if (( n == 1 )); then path="1/${name_lc}"
+    elif (( n == 2 )); then path="2/${name_lc}"
+    elif (( n == 3 )); then path="3/${name_lc:0:1}/${name_lc}"
+    else path="${name_lc:0:2}/${name_lc:2:2}/${name_lc}"; fi
+
+    local tmp="$(mktemp)"
+    local code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
+
+    if [[ "${code}" == "404" ]]; then
+        rm -f "${tmp}"
+        echo "no"
+        return 0
+    fi
+    if [[ "${code}" != "200" ]]; then
+        rm -f "${tmp}"
+        die "Error: crates.io index request failed for ${name} (HTTP ${code})." 2
+    fi
+    if grep -q "\"vers\":\"${version}\"" "${tmp}"; then
+        rm -f "${tmp}"
+        echo "yes"
+        return 0
+    fi
+
+    rm -f "${tmp}"
+    echo "no"
+
+}
+cmd_can_publish () {
+
+    source <(parse "$@" -- name)
+
+    if [[ -n "${name}" ]]; then
+        [[ "$(cmd_is_published "${name}")" == "yes" ]] && { echo "no"; return 0; }
+        echo "yes"
+        return 0
+    fi
+
+    local p=""
+    local -a pkgs=()
+
+    while IFS= read -r line; do pkgs+=( "${line}" ); done < <(publishable_pkgs)
+    [[ ${#pkgs[@]} -gt 0 ]] || { echo "no"; return 0; }
+
+    for p in "${pkgs[@]}"; do
+        [[ "$(cmd_is_published "${p}")" == "yes" ]] && { echo "no"; return 0; }
+    done
+
+    echo "yes"
+
+}
+cmd_publish () {
+
+    source <(parse "$@" -- token allow_dirty:bool dry_run:bool package:list)
+
+    local old_token="" old_token_set=0 xtrace=0 i=0 p=""
+    local -a cargo_args=()
+
+    token="${token:-${CARGO_REGISTRY_TOKEN-}}"
+
+    [[ -n "${token}" ]] || die "Missing registry token. Use --token or set CARGO_REGISTRY_TOKEN." 2
+    [[ "${token}" =~ [[:space:]] ]] && die "Invalid token: ${token}." 2
+
+    (( dry_run )) && cargo_args+=( --dry-run )
+
+    if is_ci && ! is_ci_push; then
+        die "Refusing publish in CI." 2
+    fi
+    if (( ! allow_dirty )) && has git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        if [[ -n "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
+            die "Refusing publish with a dirty git working tree. Commit/stash changes, or pass --allow-dirty." 2
+        fi
+
+    fi
+    if (( ! dry_run )) && ! is_ci; then
+
+        local msg="About to publish "
+
+        if [[ ${#package[@]} -gt 0 ]]; then
+            msg+="package(s): ${package[*]}"
+        else
+            msg+="workspace"
+        fi
+
+        confirm "${msg}. Continue?" || die "Aborted." 1
+
+    fi
+    if [[ -n "${CARGO_REGISTRY_TOKEN+x}" ]]; then
+        old_token_set=1
+        old_token="${CARGO_REGISTRY_TOKEN}"
+    fi
+    if [[ -n "${token}" ]]; then
+
+        [[ $- == *x* ]] && { xtrace=1; set +x; }
+        export CARGO_REGISTRY_TOKEN="${token}"
+
+        trap '
+            if (( old_token_set )); then
+                export CARGO_REGISTRY_TOKEN="${old_token}"
+            else
+                unset CARGO_REGISTRY_TOKEN
+            fi
+
+            (( xtrace )) && set -x
+
+            trap - RETURN
+        ' RETURN
+
+    fi
+    if [[ ${#package[@]} -gt 0 ]]; then
+
+        for p in "${package[@]}"; do [[ "$(cmd_can_publish "${p}")" == "yes" ]] || die "Package: ${p} already published" 2; done
+        for p in "${package[@]}"; do run_cargo publish --package "${p}" "${cargo_args[@]}" "${kwargs[@]}"; done
+
+        return 0
+
+    fi
+
+    [[ "$(cmd_can_publish)" == "yes" ]] || die "There is some packages already published" 2
+    run_cargo publish --workspace "${cargo_args[@]}" "${kwargs[@]}"
+
+}
+cmd_yank () {
+
+    source <(parse "$@" -- :package :version token undo:bool)
+
+    local old_token="" old_token_set=0 xtrace=0
+
+    version="${version#v}"
+    token="${token:-${CARGO_REGISTRY_TOKEN-}}"
+
+    [[ -n "${token}" ]] || die "Missing registry token. Use --token or set CARGO_REGISTRY_TOKEN." 2
+    [[ "${token}" =~ [[:space:]] ]] && die "Invalid token: ${token}." 2
+
+    if is_ci && ! is_ci_push; then
+        die "Refusing yank in CI." 2
+    fi
+    if ! is_ci; then
+
+        (( undo )) || confirm "About to yank ${package} v${version}. Continue?" || die "Aborted." 1
+        (( undo )) && confirm "About to undo yank ${package} v${version}. Continue?" || die "Aborted." 1
+
+    fi
+    if [[ -n "${CARGO_REGISTRY_TOKEN+x}" ]]; then
+        old_token_set=1
+        old_token="${CARGO_REGISTRY_TOKEN}"
+    fi
+    if [[ -n "${token}" ]]; then
+
+        [[ $- == *x* ]] && { xtrace=1; set +x; }
+        export CARGO_REGISTRY_TOKEN="${token}"
+
+        trap '
+            if (( old_token_set )); then
+                export CARGO_REGISTRY_TOKEN="${old_token}"
+            else
+                unset CARGO_REGISTRY_TOKEN
+            fi
+
+            (( xtrace )) && set -x
+
+            trap - RETURN
+        ' RETURN
+
+    fi
+    if (( undo )); then
+        run_cargo yank -p "${package}" --version "${version}" --undo "${kwargs[@]}"
+        return 0
+    fi
+
+    run_cargo yank -p "${package}" --version "${version}" "${kwargs[@]}"
 
 }
 cmd_meta () {
@@ -1005,7 +1210,7 @@ cmd_meta () {
                 mode="packages"
                 shift || true
             ;;
-            --only-publish)
+            --only-publishable)
                 only_published=1
                 shift || true
             ;;
@@ -1165,7 +1370,7 @@ cmd_doctor () {
     is_ci || { export RUSTFLAGS='-Dwarnings'; export RUST_BACKTRACE='1'; }
 
     local ok=0 warn=0 fail=0
-    local distro="" wsl="no" ci="no"
+    local distro="" wsl="no"
     local os="$(uname -s 2>/dev/null || echo unknown)"
     local kernel="$(uname -r 2>/dev/null || echo unknown)"
     local arch="$(uname -m 2>/dev/null || echo unknown)"
@@ -1173,7 +1378,6 @@ cmd_doctor () {
 
     [[ -r /etc/os-release ]] && distro="$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-unknown}")" || distro="unknown"
     [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null && wsl="yes"
-    [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI:-}" ]] && ci="yes"
 
     local cpu="$(lscpu 2>/dev/null | awk -F: '/Model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' || true)"
     local cores="$(nproc 2>/dev/null || echo unknown)"
@@ -1192,7 +1396,6 @@ cmd_doctor () {
     printf '  ✅ %-18s %s\n' "Kernel:" "${kernel}"; ok=$(( ok + 1 ))
     printf '  ✅ %-18s %s\n' "Arch:" "${arch}"; ok=$(( ok + 1 ))
     printf '  ✅ %-18s %s\n' "WSL:" "${wsl}"; ok=$(( ok + 1 ))
-    printf '  ✅ %-18s %s\n' "CI:" "${ci}"; ok=$(( ok + 1 ))
     printf '  ✅ %-18s %s\n' "Shell:" "${shell}"; ok=$(( ok + 1 ))
     printf '  ✅ %-18s %s\n' "CPU:" "${cpu}"; ok=$(( ok + 1 ))
     printf '  ✅ %-18s %s\n' "Cores:" "${cores}"; ok=$(( ok + 1 ))
@@ -1388,394 +1591,20 @@ cmd_doctor () {
     return 0
 
 }
-cmd_is_publishable () {
-
-    ensure grep tr
-
-    local name="${1:-}" needle=""
-    [[ -n "${name}" ]] || die "Error: package name is required." 2
-
-    needle="$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]')"
-
-    if publishable_pkgs | tr '[:upper:]' '[:lower:]' | grep -Fxq -- "${needle}"; then
-        printf '%s\n' "yes"
-        return 0
-    fi
-
-    printf '%s\n' "no"
-    return 1
-
-}
-cmd_is_published () {
-
-    ensure grep curl
-
-    local name="${1:-}"
-    [[ -n "${name}" ]] || die "Error: crate name is required." 2
-    [[ "$(cmd_is_publishable "${name}")" == "yes" ]] || die "Error: package ${name} is not publishable." 2
-
-    local version="$(cmd_version "${name}")"
-    local name_lc="${name,,}"
-    local n="${#name_lc}"
-    local path=""
-
-    if (( n == 1 )); then path="1/${name_lc}"
-    elif (( n == 2 )); then path="2/${name_lc}"
-    elif (( n == 3 )); then path="3/${name_lc:0:1}/${name_lc}"
-    else path="${name_lc:0:2}/${name_lc:2:2}/${name_lc}"; fi
-
-    local tmp="$(mktemp)"
-    local code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
-
-    if [[ "${code}" == "404" ]]; then
-        rm -f "${tmp}"
-        echo "no"
-        return 0
-    fi
-    if [[ "${code}" != "200" ]]; then
-        rm -f "${tmp}"
-        die "Error: crates.io index request failed for ${name} (HTTP ${code})." 2
-    fi
-    if grep -q "\"vers\":\"${version}\"" "${tmp}"; then
-        rm -f "${tmp}"
-        echo "yes"
-        return 0
-    fi
-
-    rm -f "${tmp}"
-    echo "no"
-
-}
-cmd_can_publish () {
-
-    local name="${1:-}"
-
-    if [[ -n "${name}" ]]; then
-        [[ "$(cmd_is_published "${name}")" == "yes" ]] && { echo "no"; return 0; }
-        echo "yes"
-        return 0
-    fi
-
-    local p=""
-    local -a pkgs=()
-
-    while IFS= read -r line; do pkgs+=( "${line}" ); done < <(publishable_pkgs)
-    [[ ${#pkgs[@]} -gt 0 ]] || { echo "no"; return 0; }
-
-    for p in "${pkgs[@]}"; do
-        [[ "$(cmd_is_published "${p}")" == "yes" ]] && { echo "no"; return 0; }
-    done
-
-    echo "yes"
-
-}
-cmd_publish () {
-
-    local dry_run=0
-    local allow_dirty=0
-    local token=""
-    local -a packages=()
-    local -a excludes=()
-    local -a cargo_args=()
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -p|--package)
-                shift || true
-                [[ -n "${1:-}" ]] || die "Error: -p/--package requires a value" 2
-                packages+=( "$1" )
-                shift || true
-            ;;
-            --package=*)
-                local v="${1#*=}"
-                [[ -n "${v}" ]] || die "Error: --package requires a value" 2
-                packages+=( "${v}" )
-                shift || true
-            ;;
-            --exclude|--execlude)
-                shift || true
-                [[ -n "${1:-}" ]] || die "Error: --exclude requires a value" 2
-                excludes+=( "$1" )
-                shift || true
-            ;;
-            --exclude=*|--execlude=*)
-                local v="${1#*=}"
-                [[ -n "${v}" ]] || die "Error: --exclude requires a value" 2
-                excludes+=( "${v}" )
-                shift || true
-            ;;
-            --token)
-                shift || true
-                token="${1:-}"
-                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
-                shift || true
-            ;;
-            --token=*)
-                token="${1#*=}"
-                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
-                shift || true
-            ;;
-            --dry-run|--dryrun|--dryr-run)
-                dry_run=1
-                shift || true
-            ;;
-            --allow-dirty)
-                allow_dirty=1
-                shift || true
-            ;;
-            --)
-                shift || true
-                break
-            ;;
-            *)
-                break
-            ;;
-        esac
-    done
-
-    [[ ${#packages[@]} -gt 0 && ${#excludes[@]} -gt 0 ]] && die "Error: --exclude cannot be used with --package/-p" 2
-    local p="" env_token="${CARGO_REGISTRY_TOKEN:-}"
-
-    for p in "${packages[@]}"; do
-        [[ "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${p}" 2
-    done
-    for p in "${excludes[@]}"; do
-        [[ "${p}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid exclude name: ${p}" 2
-    done
-
-    [[ -n "${token}" && "${token}" =~ [[:space:]] ]] && die "Error: --token contains whitespace (looks invalid)." 2
-    [[ -n "${env_token}" && "${env_token}" =~ [[:space:]] ]] && die "Error: CARGO_REGISTRY_TOKEN contains whitespace (looks invalid)." 2
-
-    if is_ci && (( dry_run == 0 )); then
-
-        if [[ "${GITHUB_EVENT_NAME:-}" != "push" || "${GITHUB_REF:-}" != refs/tags/v* ]]; then
-            die "Refusing publish in CI (need tag push: refs/tags/v*)." 2
-        fi
-
-        [[ -n "${token}" || -n "${env_token}" ]] || die "Missing registry token in CI. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
-
-    fi
-    if (( dry_run == 0 )) && has git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-
-        if (( allow_dirty == 0 )) && [[ -n "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
-            die "Refusing publish with a dirty git working tree. Commit/stash changes, or pass --allow-dirty." 2
-        fi
-
-    fi
-    if (( dry_run == 0 )) && [[ -z "${token}" && -z "${env_token}" ]]; then
-        die "Missing publish token. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
-    fi
-
-    (( dry_run )) && cargo_args+=( --dry-run )
-    local i=0
-
-    while [[ $i -lt ${#excludes[@]} ]]; do
-        cargo_args+=( --exclude "${excludes[$i]}" )
-        i=$(( i + 1 ))
-    done
-
-    if (( dry_run == 0 )) && ! is_ci; then
-
-        local msg="About to publish "
-
-        if [[ ${#packages[@]} -gt 0 ]]; then
-            msg+="package(s): ${packages[*]}"
-        else
-            msg+="workspace"
-            [[ ${#excludes[@]} -gt 0 ]] && msg+=" (exclude: ${excludes[*]})"
-        fi
-
-        confirm "${msg}. Continue?" || die "Aborted." 1
-
-    fi
-
-    local old_token="" old_token_set=0 xtrace=0
-
-    if [[ -n "${CARGO_REGISTRY_TOKEN+x}" ]]; then
-        old_token_set=1
-        old_token="${CARGO_REGISTRY_TOKEN}"
-    fi
-    if [[ -n "${token}" ]]; then
-
-        [[ $- == *x* ]] && { xtrace=1; set +x; }
-
-        export CARGO_REGISTRY_TOKEN="${token}"
-
-        trap '
-            if (( old_token_set )); then
-                export CARGO_REGISTRY_TOKEN="${old_token}"
-            else
-                unset CARGO_REGISTRY_TOKEN
-            fi
-
-            (( xtrace )) && set -x
-
-            trap - RETURN
-        ' RETURN
-
-    fi
-
-    if [[ ${#packages[@]} -gt 0 ]]; then
-
-        for p in "${packages[@]}"; do
-            [[ "$(cmd_can_publish "${p}")" == "yes" ]] || die "Error: ${p} already published" 2
-        done
-        for p in "${packages[@]}"; do
-            run_cargo publish --package "${p}" "${cargo_args[@]}" "$@"
-        done
-
-    else
-
-        [[ "$(cmd_can_publish)" == "yes" ]] || die "Error: there is one/many packages already published" 2
-        run_cargo publish --workspace "${cargo_args[@]}" "$@"
-
-    fi
-
-}
-cmd_yank () {
-
-    local package=""
-    local version=""
-    local undo=0
-    local token=""
-    local env_token="${CARGO_REGISTRY_TOKEN:-}"
-    local -a pass=()
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -p|--package)
-                shift || true
-                package="${1:-}"
-                [[ -n "${package}" ]] || die "Error: -p/--package requires a value" 2
-                shift || true
-            ;;
-            --package=*)
-                package="${1#*=}"
-                [[ -n "${package}" ]] || die "Error: --package requires a value" 2
-                shift || true
-            ;;
-            -V|--version)
-                shift || true
-                version="${1:-}"
-                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
-                shift || true
-            ;;
-            --version=*)
-                version="${1#*=}"
-                [[ -n "${version}" ]] || die "Error: --version requires a value" 2
-                shift || true
-            ;;
-            --token)
-                shift || true
-                token="${1:-}"
-                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
-                shift || true
-            ;;
-            --token=*)
-                token="${1#*=}"
-                [[ -n "${token}" ]] || die "Error: --token requires a value" 2
-                shift || true
-            ;;
-            --undo|--restore)
-                undo=1
-                shift || true
-            ;;
-            --)
-                shift || true
-                pass+=( "$@" )
-                break
-            ;;
-            -*)
-                pass+=( "$1" )
-                shift || true
-            ;;
-            *)
-                if [[ -z "${package}" ]]; then
-                    package="$1"
-                    shift || true
-                    continue
-                fi
-                if [[ -z "${version}" ]]; then
-                    version="$1"
-                    shift || true
-                    continue
-                fi
-                die "Unknown arg: $1 (use -- to pass extra args)" 2
-            ;;
-        esac
-    done
-
-    [[ -n "${package}" ]] || die "Error: missing package. Use -p/--package." 2
-    [[ -n "${version}" ]] || die "Error: missing version. Use --version." 2
-
-    version="${version#v}"
-
-    [[ "${package}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Error: invalid package name: ${package}" 2
-    [[ "${version}" =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || die "Error: invalid version: ${version}" 2
-    [[ -n "${token}" && "${token}" =~ [[:space:]] ]] && die "Error: --token contains whitespace (looks invalid)." 2
-    [[ -n "${env_token}" && "${env_token}" =~ [[:space:]] ]] && die "Error: CARGO_REGISTRY_TOKEN contains whitespace (looks invalid)." 2
-
-    if is_ci; then
-
-        if [[ "${GITHUB_EVENT_NAME:-}" != "push" || "${GITHUB_REF:-}" != refs/tags/v* ]]; then
-            die "Refusing yank in CI (need tag push: refs/tags/v*)." 2
-        fi
-
-        [[ -n "${token}" || -n "${env_token}" ]] || die "Missing registry token in CI. Use --token <...> or set CARGO_REGISTRY_TOKEN." 2
-
-    fi
-
-    local action="yank" old_token="" old_token_set=0 xtrace=0
-    (( undo )) && action="undo yank"
-
-    if ! is_ci; then
-        confirm "About to ${action} ${package} v${version}. Continue?" || die "Aborted." 1
-    fi
-    if [[ -n "${CARGO_REGISTRY_TOKEN+x}" ]]; then
-        old_token_set=1
-        old_token="${CARGO_REGISTRY_TOKEN}"
-    fi
-    if [[ -n "${token}" ]]; then
-
-        [[ $- == *x* ]] && { xtrace=1; set +x; }
-
-        export CARGO_REGISTRY_TOKEN="${token}"
-
-        trap '
-            if (( old_token_set )); then
-                export CARGO_REGISTRY_TOKEN="${old_token}"
-            else
-                unset CARGO_REGISTRY_TOKEN
-            fi
-
-            (( xtrace )) && set -x
-
-            trap - RETURN
-        ' RETURN
-
-    fi
-    if (( undo )); then
-        run_cargo yank -p "${package}" --version "${version}" --undo "${pass[@]}"
-        return 0
-    fi
-
-    run_cargo yank -p "${package}" --version "${version}" "${pass[@]}"
-
-}
 
 cmd_ensure () {
 
-    into "\nEnsure OS Tools ... \n"
+    info "Ensure OS Tools ..."
     ensure jq perl grep curl clang llvm-config libclang-dev hunspell awk tail sed sort head wc xargs find git node
-    success "\nOS Tools Installed \n\n"
+    success "OS Tools Installed\n"
 
-    info "\nEnsure Rustup Tools ... \n"
+    info "Ensure Rustup Tools ..."
     ensure cargo rustfmt clippy llvm-tools-preview
-    success "\nRustup Tools Installed \n\n"
+    success "Rustup Tools Installed\n"
 
-    info "\nEnsure Cargo Tools ... \n"
+    info "Ensure Cargo Tools ..."
     ensure cargo-deny cargo-audit cargo-spellcheck cargo-llvm-cov taplo cargo-nextest cargo-hack cargo-fuzz cargo-ci-cache-clean cargo-semver-checks
-    success "\nCargo Tools Installed \n\n"
+    success "Cargo Tools Installed\n"
 
     trap 'cmd_clean_cache >/dev/null 2>&1 || true' EXIT
 
@@ -1784,187 +1613,187 @@ cmd_ci_stable () {
 
     cmd_ensure
 
-    printf "\n💥 Check ...\n\n"
+    info "Check ...\n"
     cmd_check "$@"
 
-    printf "\n💥 Test ...\n\n"
+    info "Test ...\n"
     cmd_test "$@"
 
-    success "\nCI STABLE Succeeded.\n\n"
+    success "CI STABLE Succeeded.\n"
 
 }
 cmd_ci_nightly () {
 
     cmd_ensure
 
-    printf "\n💥 Check Nightly ...\n\n"
+    info "Check Nightly ...\n"
     cmd_check --nightly "$@"
 
-    printf "\n💥 Test Nightly ...\n\n"
+    info "Test Nightly ...\n"
     cmd_test --nightly "$@"
 
-    success "\nCI NIGHTLY Succeeded.\n\n"
+    success "CI NIGHTLY Succeeded.\n"
 
 }
 cmd_ci_msrv () {
 
     cmd_ensure
 
-    printf "\n💥 Check Msrv ...\n\n"
+    info "Check Msrv ...\n"
     cmd_check --msrv "$@"
 
-    printf "\n💥 Test Msrv ...\n\n"
+    info "Test Msrv ...\n"
     cmd_test --msrv "$@"
 
-    success "\nCI MSRV Succeeded.\n\n"
+    success "CI MSRV Succeeded.\n"
 
 }
 cmd_ci_doc () {
 
     cmd_ensure
 
-    printf "\n💥 Check Doc ...\n\n"
+    info "Check Doc ...\n"
     cmd_check_doc "$@"
 
-    printf "\n💥 Test Doc ...\n\n"
+    info "Test Doc ...\n"
     cmd_test_doc "$@"
 
-    success "\nCI DOC Succeeded.\n\n"
+    success "CI DOC Succeeded.\n"
 
 }
 cmd_ci_lint () {
 
     cmd_ensure
 
-    printf "\n💥 Clippy ...\n\n"
+    info "Clippy ...\n"
     cmd_clippy "$@"
 
-    printf "\n💥 Check Audit ...\n\n"
+    info "Check Audit ...\n"
     cmd_check_audit "$@"
 
-    printf "\n💥 Check Format ...\n\n"
+    info "Check Format ...\n"
     cmd_check_fmt "$@"
 
-    printf "\n💥 Check Taplo ...\n\n"
+    info "Check Taplo ...\n"
     cmd_check_taplo "$@"
 
-    printf "\n💥 Check Prettier ...\n\n"
+    info "Check Prettier ...\n"
     cmd_check_prettier "$@"
 
-    printf "\n💥 Check Spellcheck ...\n\n"
+    info "Check Spellcheck ...\n"
     cmd_spellcheck "$@"
 
-    success "\nCI LINT Succeeded.\n\n"
+    success "CI LINT Succeeded.\n"
 
 }
 cmd_ci_hack () {
 
     cmd_ensure
 
-    printf "\n💥 Hack ...\n\n"
+    info "Hack ...\n"
     cmd_hack "$@"
 
-    success "\nCI HACK Succeeded.\n\n"
+    success "CI HACK Succeeded.\n"
 
 }
 cmd_ci_fuzz () {
 
     cmd_ensure
 
-    printf "\n💥 Fuzz ...\n\n"
+    info "Fuzz ...\n"
     cmd_fuzz "$@"
 
-    success "\nCI FUZZ Succeeded.\n\n"
+    success "CI FUZZ Succeeded.\n"
 
 }
 cmd_ci_semver () {
 
     cmd_ensure
 
-    printf "\n💥 Semver ...\n\n"
+    info "Semver ...\n"
     cmd_semver "$@"
 
-    success "\nCI SEMVER Succeeded.\n\n"
+    success "CI SEMVER Succeeded.\n"
 
 }
 cmd_ci_coverage () {
 
     cmd_ensure
 
-    printf "\n💥 Coverage ...\n\n"
+    info "Coverage ...\n"
     cmd_coverage "$@"
 
-    success "\nCI Coverage Succeeded.\n\n"
+    success "CI Coverage Succeeded.\n"
 
 }
 cmd_ci_publish () {
 
     cmd_ensure
 
-    printf "\n💥 Publish ...\n\n"
+    info "Publish ...\n"
     cmd_publish "$@"
 
-    success "\nCI PUBLISH Succeeded.\n\n"
+    success "CI PUBLISH Succeeded.\n"
 
 }
 cmd_ci_local () {
 
     cmd_ensure
 
-    printf "\n💥 Check ...\n\n"
+    info "Check ...\n"
     cmd_check
 
-    printf "\n💥 Test ...\n\n"
+    info "Test ...\n"
     cmd_test
 
-    printf "\n💥 Check Nightly ...\n\n"
+    info "Check Nightly ...\n"
     cmd_check --nightly
 
-    printf "\n💥 Test Nightly ...\n\n"
+    info "Test Nightly ...\n"
     cmd_test --nightly
 
-    printf "\n💥 Check Msrv ...\n\n"
+    info "Check Msrv ...\n"
     cmd_check --msrv
 
-    printf "\n💥 Test Msrv ...\n\n"
+    info "Test Msrv ...\n"
     cmd_test --msrv
 
-    printf "\n💥 Check Doc ...\n\n"
+    info "Check Doc ...\n"
     cmd_check_doc
 
-    printf "\n💥 Test Doc ...\n\n"
+    info "Test Doc ...\n"
     cmd_test_doc
 
-    printf "\n💥 Clippy ...\n\n"
+    info "Clippy ...\n"
     cmd_clippy
 
-    printf "\n💥 Check Audit ...\n\n"
+    info "Check Audit ...\n"
     cmd_check_audit
 
-    printf "\n💥 Check Format ...\n\n"
+    info "Check Format ...\n"
     cmd_check_fmt
 
-    printf "\n💥 Check Taplo ...\n\n"
+    info "Check Taplo ...\n"
     cmd_check_taplo
 
-    printf "\n💥 Check Prettier ...\n\n"
+    info "Check Prettier ...\n"
     cmd_check_prettier
 
-    printf "\n💥 Check Spellcheck ...\n\n"
+    info "Check Spellcheck ...\n"
     cmd_spellcheck
 
-    printf "\n💥 Hack ...\n\n"
+    info "Hack ...\n"
     cmd_hack
 
-    printf "\n💥 Fuzz ...\n\n"
+    info "Fuzz ...\n"
     cmd_fuzz
 
-    printf "\n💥 Semver ...\n\n"
+    info "Semver ...\n"
     cmd_semver
 
-    printf "\n💥 Coverage ...\n\n"
+    info "Coverage ...\n"
     cmd_coverage
 
-    success "\nCI Pipeline Succeeded.\n\n"
+    success "CI Pipeline Succeeded.\n"
 
 }
