@@ -998,7 +998,7 @@ cmd_is_published () {
     elif (( n == 3 )); then path="3/${name_lc:0:1}/${name_lc}"
     else path="${name_lc:0:2}/${name_lc:2:2}/${name_lc}"; fi
 
-    local tmp="$(mktemp)"
+    local tmp="$(mktemp "${TMPDIR:-/tmp}/vx.XXXXXX")"
     local code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
 
     if [[ "${code}" == "404" ]]; then
