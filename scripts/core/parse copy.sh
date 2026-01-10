@@ -85,65 +85,6 @@ parse_is_option_like () {
     return 1
 
 }
-parse_args__is_known_opt_token () {
-
-    local tok="${1-}"
-    local -n __alias_to="${2}"
-    local -n __stype="${3}"
-
-    local key="" kn="" k=""
-
-    case "${tok}" in
-
-        --no-*|-no-*)
-            key="${tok#--no-}"
-            key="${key#-no-}"
-
-            kn="$(parse_try_norm_key "${key}" || true)"
-            [[ -n "${kn}" ]] || return 1
-
-            k="${__alias_to[${kn}]-}"
-            [[ -n "${k}" ]] || return 1
-            [[ "${__stype[${k}]-}" == "bool" ]] || return 1
-
-            return 0
-        ;;
-
-        --*=*|-*=*)
-            key="${tok%%=*}"
-
-            key="${key#--}"
-            key="${key#-}"
-
-            kn="$(parse_try_norm_key "${key}" || true)"
-            [[ -n "${kn}" ]] || return 1
-
-            k="${__alias_to[${kn}]-}"
-            [[ -n "${k}" ]] || return 1
-
-            return 0
-        ;;
-
-        --*|-*)
-            [[ "${tok}" == "-" || "${tok}" == "--" ]] && return 1
-
-            key="${tok#--}"
-            key="${key#-}"
-
-            kn="$(parse_try_norm_key "${key}" || true)"
-            [[ -n "${kn}" ]] || return 1
-
-            k="${__alias_to[${kn}]-}"
-            [[ -n "${k}" ]] || return 1
-
-            return 0
-        ;;
-
-    esac
-
-    return 1
-
-}
 parse_int_norm () {
 
     local v="${1-}"
@@ -578,6 +519,16 @@ parse_args__infer_auto_types () {
 }
 parse_args__validate_pos_list_last () {
 
+    local -n __pos_order="${1}"
+    local -n __stype="${2}"
+    local -n __sdisp="${3}"
+
+    local i=0 p=""
+    for (( i=0; i<${#__pos_order[@]}-1; i++ )); do
+        p="${__pos_order[$i]}"
+        [[ "${__stype[${p}]}" == "list" ]] && die "parse: positional '${__sdisp[${p}]}' (list) must be last" 2
+    done
+
     return 0
 
 }
@@ -613,9 +564,14 @@ parse_args__parse_argv () {
     local -n __sdisp="${5}"
     local -n __set="${6}"
 
-    local raw_mode=0 pos_i=0 pos_list=""
-    local i=0 arg="" key="" val="" next="" k="" knorm="" tv=""
+    local raw_mode=0
+    local pos_i=0
+    local pos_list=""
 
+    local i=0
+    local arg="" key="" val="" next="" k="" knorm="" tv=""
+
+    i=0
     while (( i < ${#__argv[@]} )); do
 
         arg="${__argv[$i]}"
@@ -625,9 +581,8 @@ parse_args__parse_argv () {
             parse_array_append kwargs "${arg}"
             continue
         fi
-        if [[ "${arg}" == "--" ]]; then
 
-            parse_array_append kwargs "${arg}"
+        if [[ "${arg}" == "--" ]]; then
 
             while (( i < ${#__argv[@]} )); do
                 parse_array_append kwargs "${__argv[$i]}"
@@ -638,28 +593,31 @@ parse_args__parse_argv () {
             break
 
         fi
+
         if [[ -n "${pos_list}" ]]; then
 
             if [[ "${arg}" == "--" ]]; then
-
-                parse_array_append kwargs "${arg}"
-
                 while (( i < ${#__argv[@]} )); do
                     parse_array_append kwargs "${__argv[$i]}"
                     i=$(( i + 1 ))
                 done
-
                 raw_mode=1
                 break
             fi
-            if parse_is_neg_number_token "${arg}"; then
-                parse_array_append "${pos_list}" "${arg}"
-                __set["${pos_list}"]=1
-                continue
-            fi
 
-            if parse_is_option_like "${arg}" && parse_args__is_known_opt_token "${arg}" "${!__alias_to}" "${!__stype}"; then
-                :
+            if parse_is_option_like "${arg}"; then
+
+                case "${arg}" in
+                    --*=*|-*=*|--no-*|-no-*|--*|-*)
+                        :
+                    ;;
+                    *)
+                        parse_array_append "${pos_list}" "${arg}"
+                        __set["${pos_list}"]=1
+                        continue
+                    ;;
+                esac
+
             else
                 parse_array_append "${pos_list}" "${arg}"
                 __set["${pos_list}"]=1
@@ -667,12 +625,14 @@ parse_args__parse_argv () {
             fi
 
         fi
+
         if [[ "${arg}" == "-" ]]; then
 
             parse_array_append kwargs "${arg}"
             continue
 
         fi
+
         if [[ "${arg}" =~ ^-[0-9] || "${arg}" =~ ^-\.[0-9] ]]; then
 
             local assigned=0
@@ -762,27 +722,6 @@ parse_args__parse_argv () {
                     parse_set_scalar "${k}" "${val}"
                 elif [[ "${tv}" == "list" ]]; then
                     parse_array_append "${k}" "${val}"
-
-                    while (( i < ${#__argv[@]} )); do
-
-                        next="${__argv[$i]}"
-
-                        [[ "${next}" == "--" ]] && break
-
-                        if parse_is_neg_number_token "${next}"; then
-                            parse_array_append "${k}" "${next}"
-                            i=$(( i + 1 ))
-                            continue
-                        fi
-                        if parse_is_option_like "${next}" && parse_args__is_known_opt_token "${next}" "${!__alias_to}" "${!__stype}"; then
-                            break
-                        fi
-
-                        parse_array_append "${k}" "${next}"
-                        i=$(( i + 1 ))
-
-                    done
-
                 else
                     parse_set_scalar "${k}" "${val}"
                 fi
@@ -849,46 +788,13 @@ parse_args__parse_argv () {
 
                 fi
 
-                if [[ "${tv}" == "list" ]]; then
-
-                    local consumed=0
-
-                    while (( i < ${#__argv[@]} )); do
-
-                        next="${__argv[$i]}"
-
-                        [[ "${next}" == "--" ]] && break
-
-                        if parse_is_neg_number_token "${next}"; then
-                            parse_array_append "${k}" "${next}"
-                            i=$(( i + 1 ))
-                            consumed=1
-                            continue
-                        fi
-
-                        if parse_is_option_like "${next}" && parse_args__is_known_opt_token "${next}" "${!__alias_to}" "${!__stype}"; then
-                            break
-                        fi
-
-                        parse_array_append "${k}" "${next}"
-                        i=$(( i + 1 ))
-                        consumed=1
-
-                    done
-
-                    (( consumed )) || die "parse: '${arg}' expects a value" 2
-
-                    __set["${k}"]=1
-                    continue
-
-                fi
-
                 (( i < ${#__argv[@]} )) || die "parse: '${arg}' expects a value" 2
                 next="${__argv[$i]}"
 
                 if [[ "${next}" == "--" ]]; then
                     die "parse: '${arg}' expects a value" 2
                 fi
+
                 if parse_is_option_like "${next}"; then
 
                     if [[ "${tv}" == "int" || "${tv}" == "float" ]] && parse_is_neg_number_token "${next}"; then
@@ -1238,29 +1144,6 @@ parse_args () {
 }
 parse () {
 
-    local __parse_old_die="$(declare -f die 2>/dev/null || true)"
-
-    die () {
-
-        local msg="${1-}"
-        local code="${2:-2}"
-
-        printf '❌ %s\n' "${msg}" >&2
-        printf 'return %s 2>/dev/null || exit %s\n' "${code}" "${code}"
-
-        exit 0
-
-    }
-
     parse_args --local "$@"
-    local rc=$?
-
-    if [[ -n "${__parse_old_die}" ]]; then
-        eval "${__parse_old_die}"
-    else
-        unset -f die 2>/dev/null || true
-    fi
-
-    return "${rc}"
 
 }
