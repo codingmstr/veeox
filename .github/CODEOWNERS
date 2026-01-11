@@ -1,0 +1,16 @@
+*                       @__USER__
+
+/.github/               @__USER__
+/benches/               @__USER__
+/examples/              @__USER__
+/tests/                 @__USER__
+/fuzz/                  @__USER__
+/scripts/               @__USER__
+
+/Cargo.toml             @__USER__
+/*.toml                 @__USER__
+
+/docs/                  @__USER__
+/*.md                   @__USER__
+
+/crates/                @__USER__

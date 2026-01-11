@@ -1,0 +1,18 @@
+[package]
+name = "demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "demo: this is a demo crate"
+categories = ["development-tools"]
+keywords = ["demo"]
+
+[dependencies]
+
+[lints]
+workspace = true

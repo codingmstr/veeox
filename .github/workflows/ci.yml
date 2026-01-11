@@ -1,0 +1,264 @@
+name: CI
+
+on:
+  push:
+    branches: ['main']
+    tags: ['v*']
+
+  pull_request:
+    branches: ['main']
+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: '-Dwarnings'
+  RUST_BACKTRACE: '1'
+  RUST_STABLE: stable
+  RUST_MSRV: '1.90.0'
+  RUST_NIGHTLY: nightly-2026-01-01
+  NODE_VERSION: '25'
+
+jobs:
+  stable:
+    name: stable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-STABLE
+        run: bash ./scripts/run.sh ci-stable
+
+  nightly:
+    name: nightly
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_NIGHTLY }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-NIGHTLY
+        run: bash ./scripts/run.sh ci-nightly
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_MSRV }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-MSRV
+        run: bash ./scripts/run.sh ci-msrv
+
+  doc:
+    name: doc
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-DOC
+        run: bash ./scripts/run.sh ci-doc
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-LINT
+        run: bash ./scripts/run.sh ci-lint
+
+  hack:
+    name: hack
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-HACK
+        run: bash ./scripts/run.sh ci-hack
+
+  cross:
+    name: ${{ matrix.os }} (stable)
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-STABLE
+        run: bash ./scripts/run.sh ci-stable
+
+  semver:
+    name: semver
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-SEMVER
+        run: bash ./scripts/run.sh ci-semver
+
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_NIGHTLY }}
+
+      - name: Setup Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: CI FUZZ
+        run: bash ./scripts/run.sh ci-fuzz --timeout 10 --len 5000
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+
+    needs: [stable, lint, doc, hack, cross, msrv, semver]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Coverage
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: bash ./scripts/run.sh ci-coverage --upload
+
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+
+    needs: [stable, lint, doc, hack, cross, msrv, semver, coverage]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run CI-Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash ./scripts/run.sh ci-publish

@@ -1,0 +1,18 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: '💬 Discussions'
+    url: '__DISCUSSIONS_URL__'
+    about: 'Questions, ideas, RFCs, and general discussion.'
+
+  - name: '✨ Ideas'
+    url: '__IDEAS_URL__'
+    about: 'Propose features and enhancements before opening an issue.'
+
+  - name: '🤝 Support'
+    url: '__SUPPORT_URL__'
+    about: 'Support channels and how to get help.'
+
+  - name: '📚 Documentation'
+    url: '__README_URL__'
+    about: 'Project documentation and getting started.'
