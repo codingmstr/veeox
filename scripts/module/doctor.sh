@@ -417,11 +417,9 @@ doctor_summary () {
 
     info_ln '==> Summary \n'
 
-    printf '  ✅ %-18s %s\n' "OK"   "( ${ok} )"
-    printf '  ⚠️ %-18s %s\n' "Warn" "( ${warn} )"
-    printf '  ❌ %-18s %s\n' "Fail" "( ${fail} )"
-
-    info_ln '==> Analysis \n'
+    printf '  ✅ %-18s %s\n\n' "OK"   "( ${ok} )"
+    printf '  ⚠️ %-18s %s\n\n' "Warn" "( ${warn} )"
+    printf '  ❌ %-18s %s\n\n' "Fail" "( ${fail} )"
 
     local face="" msg="" idx=0
     local -a msgs=()
@@ -442,56 +440,26 @@ doctor_summary () {
     elif (( warn == 0 )); then
 
         face="😎"
-        msgs=(
-            "👌 All is awsome 💯"
-            "Clean bill of health."
-            "Zero warnings. Maximum swagger."
-            "System status: annoyingly perfect."
-            "No warnings detected. Proceed with confidence."
-        )
-        idx=$(( ok % ${#msgs[@]} ))
-        msg="${msgs[$idx]}"
+        msg="👌 All is awsome 💯"
 
     elif (( warn == 1 )); then
 
         face="🤔"
-        msgs=(
-            "One warning. I'm watching you."
-            "Single warning spotted—probably harmless. Probably."
-            "One tiny crack. Not a fire… yet."
-            "Almost perfect. Nature is healing."
-        )
-        idx=$(( warn % ${#msgs[@]} ))
-        msg="${msgs[$idx]}"
+        msg="One tiny crack. Not a fire… yet."
 
     elif (( warn == 2 )); then
 
-        face="🟡"
-        msgs=(
-            "Two warnings. Still fine… but stop tempting fate."
-            "Minor turbulence. Fasten your seatbelt."
-            "Two warnings—edge of “meh”."
-            "Some concerns. Nothing a coffee can't fix."
-        )
-        idx=$(( warn % ${#msgs[@]} ))
-        msg="${msgs[$idx]}"
+        face="😭"
+        msg="Two warnings. Still fine… but stop tempting fate."
 
     else
 
-        face="🧯"
-        msgs=(
-            "Warning party detected. Please disperse."
-            "This is not a build; it's a negotiation."
-            "Too many warnings. Your future self is screaming."
-            "Status: functional… emotionally unstable."
-            "We're in the “it works on my machine” zone."
-        )
-        idx=$(( warn % ${#msgs[@]} ))
-        msg="${msgs[$idx]}"
+        face="😧"
+        msg="Too many warnings. Your future self is screaming"
 
     fi
 
-    printf '  %s %-18s %s\n' "${face}" "Final Status" "${msg}"
+    printf '  %s %-18s %s\n' "${face}" "Finally" "${msg}"
     printf '\n'
 
 }
