@@ -189,8 +189,10 @@ doctor_sys () {
 
     ensure awk grep
 
-    local distro="unknown" wsl="no"
+    local distro="unknown" wsl="No" ci="No"
     local os="unknown" kernel="unknown" arch="unknown" shell="${SHELL:-unknown}"
+
+    is_ci && ci="Yes"
 
     os="$(uname -s 2>/dev/null || printf '%s' unknown)"
     kernel="$(uname -r 2>/dev/null || printf '%s' unknown)"
@@ -205,9 +207,9 @@ doctor_sys () {
     fi
 
     if [[ -n "${WSL_INTEROP:-}" || -n "${WSL_DISTRO_NAME:-}" ]]; then
-        wsl="yes"
+        wsl="Yes"
     elif [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
-        wsl="yes"
+        wsl="Yes"
     fi
 
     local cpu="" cores="unknown" mem="unknown" disk="unknown"
@@ -240,7 +242,7 @@ doctor_sys () {
     fi
     [[ -n "${mem}" ]] || mem="unknown"
 
-    disk="$(df -h . 2>/dev/null | awk 'NR==2 { print $4 " free of " $2 " (" $5 " used)"; exit }' || true)"
+    disk="$(LC_ALL=C df -hP . 2>/dev/null | awk 'NR==2 { print $4 " free of " $2 " (" $5 " used)"; exit }' || true)"
     [[ -n "${disk}" ]] || disk="unknown"
 
     info_ln '==> OS \n'
@@ -248,13 +250,14 @@ doctor_sys () {
     doctor_status ok "OS" "${os}"
     doctor_status ok "Distro" "${distro}"
     doctor_status ok "Kernel" "${kernel}"
+    doctor_status ok "Disk" "${disk}"
+    doctor_status ok "CPU" "${cpu}"
+    doctor_status ok "Memory" "${mem}"
+    doctor_status ok "Shell" "${shell}"
+    doctor_status ok "Cores" "${cores}"
     doctor_status ok "Arch" "${arch}"
     doctor_status ok "WSL" "${wsl}"
-    doctor_status ok "Shell" "${shell}"
-    doctor_status ok "CPU" "${cpu}"
-    doctor_status ok "Cores" "${cores}"
-    doctor_status ok "Memory" "${mem}"
-    doctor_status ok "Disk" "${disk}"
+    doctor_status ok "CI" "${ci}"
 
 }
 doctor_github () {
@@ -262,8 +265,6 @@ doctor_github () {
     info_ln '==> Github \n'
 
     local root="$(pwd -P 2>/dev/null || pwd 2>/dev/null || printf '%s' '.')"
-
-    doctor_tool warn "gh" gh
 
     if has git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 
@@ -278,11 +279,12 @@ doctor_github () {
             dirty="clean"
         fi
 
+        [[ -n "${origin}" ]] && doctor_status ok "Origin" "${origin}" || doctor_status warn "Origin" "missing"
+
         doctor_status ok "Root" "${root}"
         doctor_status ok "Branch" "${branch}"
         doctor_status ok "Commit" "${head}"
 
-        [[ -n "${origin}" ]] && doctor_status ok "Origin" "${origin}" || doctor_status warn "Origin" "missing"
         [[ "${dirty}" == "clean" ]] && doctor_status ok "Status" "${dirty}" || doctor_status warn "Status" "${dirty}"
 
     else
@@ -295,35 +297,13 @@ doctor_github () {
 }
 doctor_tools () {
 
-    ensure awk
     info_ln '==> Tools \n'
 
-    if has rustup; then
-
-        doctor_tool ok "rustup" rustup
-        doctor_tool ok "rustc" rustc
-        doctor_tool ok "cargo" cargo
-
-        local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
-        [[ -n "${active_tc}" ]] && doctor_status ok "active" "${active_tc}" || doctor_status warn "active" "unknown"
-
-        local stable_tc="" nightly_tc="" msrv_tc=""
-
-        stable_tc="$(stable_version 2>/dev/null || true)"
-        nightly_tc="$(nightly_version 2>/dev/null || true)"
-        msrv_tc="$(msrv_version 2>/dev/null || true)"
-
-        [[ -n "${stable_tc}" ]] || stable_tc="${RUST_STABLE:-stable}"
-        [[ -n "${nightly_tc}" ]] || nightly_tc="${RUST_NIGHTLY:-nightly}"
-
-        doctor_toolchain "stable" "${stable_tc}"
-        doctor_toolchain "nightly" "${nightly_tc}"
-        [[ -n "${msrv_tc}" ]] && doctor_toolchain "msrv" "${msrv_tc}" || doctor_status warn "msrv" "not set"
-
-    else
-        doctor_status fail "rustup" "missing"
-    fi
-
+    doctor_tool warn "git" git
+    doctor_tool warn "gh" gh
+    doctor_tool warn "rustup" rustup
+    doctor_tool warn "rustc" rustc
+    doctor_tool warn "cargo" cargo
     doctor_tool warn "clang" clang
     doctor_tool warn "llvm" llvm-config
     doctor_tool warn "node" node
@@ -341,11 +321,42 @@ doctor_rust () {
         return 0
     fi
 
-    local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
-    [[ -n "${active_tc}" ]] || active_tc="stable"
+    [[ -n "${RUSTFLAGS:-}" ]] && doctor_status ok "RUSTFLAGS" "${RUSTFLAGS}" || doctor_status ok "RUSTFLAGS" "--"
+    [[ -n "${RUST_BACKTRACE:-}" ]] && doctor_status ok "RUST_BACKTRACE" "${RUST_BACKTRACE}" || doctor_status ok "RUST_BACKTRACE" "--"
 
+    local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
+    [[ -n "${active_tc}" ]] && doctor_status ok "active" "${active_tc}" || doctor_status warn "active" "unknown"
+
+    local stable_tc="$(stable_version 2>/dev/null || true)"
     local nightly_tc="$(nightly_version 2>/dev/null || true)"
+    local msrv_tc="$(msrv_version 2>/dev/null || true)"
+
+    [[ -n "${stable_tc}" ]] || stable_tc="${RUST_STABLE:-stable}"
     [[ -n "${nightly_tc}" ]] || nightly_tc="${RUST_NIGHTLY:-nightly}"
+
+    doctor_toolchain "stable" "${stable_tc}"
+    doctor_toolchain "nightly" "${nightly_tc}"
+    [[ -n "${msrv_tc}" ]] && doctor_toolchain "msrv" "${msrv_tc}" || doctor_status warn "msrv" "--"
+
+    if doctor_has_component "${active_tc}" '^(llvm-tools|llvm-tools-preview)($|-)'; then
+
+        local sysroot="$(rustup run "${active_tc}" rustc --print sysroot 2>/dev/null || true)"
+        local host="$(rustup run "${active_tc}" rustc -vV 2>/dev/null | awk '/^host: / { print $2; exit }' || true)"
+        local bin="${sysroot}/lib/rustlib/${host}/bin/llvm-cov"
+
+        [[ -x "${bin}" ]] || bin="${bin}.exe"
+
+        if [[ -x "${bin}" ]]; then
+            local v="$( { "${bin}" --version 2>&1 || true; } | head -n 6 | tr -d '\r' )"
+            v="$(doctor_pick_ver_line "${v}")"
+            [[ -n "${v}" ]] && doctor_status ok "llvm-tools" "${v}" || doctor_status warn "llvm-tools" "unknown"
+        else
+            doctor_status warn "llvm-tools" "unknown"
+        fi
+
+    else
+        doctor_status warn "llvm-tools" "missing"
+    fi
 
     if doctor_has_component "${active_tc}" '^rustfmt($|-)'; then
         doctor_tool warn "rustfmt" rustup run "${active_tc}" rustfmt
@@ -365,29 +376,7 @@ doctor_rust () {
         doctor_status warn "miri" "missing"
     fi
 
-    if doctor_has_component "${active_tc}" '^(llvm-tools|llvm-tools-preview)($|-)'; then
-
-        local sysroot="" host="" bin=""
-        sysroot="$(rustup run "${active_tc}" rustc --print sysroot 2>/dev/null || true)"
-        host="$(rustup run "${active_tc}" rustc -vV 2>/dev/null | awk '/^host: / { print $2; exit }' || true)"
-
-        bin="${sysroot}/lib/rustlib/${host}/bin/llvm-cov"
-        [[ -x "${bin}" ]] || bin="${bin}.exe"
-
-        if [[ -x "${bin}" ]]; then
-            local v="$( { "${bin}" --version 2>&1 || true; } | head -n 6 | tr -d '\r' )"
-            v="$(doctor_pick_ver_line "${v}")"
-            [[ -n "${v}" ]] && doctor_status ok "llvm-tools" "${v}" || doctor_status warn "llvm-tools" "unknown"
-        else
-            doctor_status warn "llvm-tools" "unknown"
-        fi
-
-    else
-        doctor_status warn "llvm-tools" "missing"
-    fi
-
-    [[ -n "${RUSTFLAGS:-}" ]] && doctor_status ok "RUSTFLAGS" "${RUSTFLAGS}" || doctor_status ok "RUSTFLAGS" "not set"
-    [[ -n "${RUST_BACKTRACE:-}" ]] && doctor_status ok "RUST_BACKTRACE" "${RUST_BACKTRACE}" || doctor_status ok "RUST_BACKTRACE" "not set"
+    doctor_tool warn "taplo" taplo
 
 }
 doctor_cargo () {
@@ -408,6 +397,7 @@ doctor_cargo () {
     doctor_cargo_sub "cargo-spellcheck" "spellcheck"     "cargo-spellcheck"
     doctor_cargo_sub "cargo-hack"       "hack"           "cargo-hack"
     doctor_cargo_sub "cargo-fuzz"       "fuzz"           "cargo-fuzz"
+    doctor_cargo_sub "cargo-upgrade"    "upgrade"        "cargo-upgrade"
 
     if [[ -d fuzz ]] && [[ -f fuzz/Cargo.toml ]] && has cargo-fuzz; then
 
@@ -427,13 +417,85 @@ doctor_summary () {
 
     info_ln '==> Summary \n'
 
-    printf '  ✅ %-18s %s\n' "OK" "( ${ok} )"
+    printf '  ✅ %-18s %s\n' "OK"   "( ${ok} )"
     printf '  ⚠️ %-18s %s\n' "Warn" "( ${warn} )"
     printf '  ❌ %-18s %s\n' "Fail" "( ${fail} )"
 
+    info_ln '==> Analysis \n'
+
+    local face="" msg="" idx=0
+    local -a msgs=()
+
+    if (( fail > 0 )); then
+
+        face="🚨"
+        msgs=(
+            "Hard fail. Stop. Fix. Repeat."
+            "Red alert. The compiler is not amused."
+            "Failures detected. Reality disagrees with you."
+            "Build is down. Ego is optional."
+            "This isn't a pipeline… it's a crime scene."
+        )
+        idx=$(( fail % ${#msgs[@]} ))
+        msg="${msgs[$idx]}"
+
+    elif (( warn == 0 )); then
+
+        face="😎"
+        msgs=(
+            "👌 All is awsome 💯"
+            "Clean bill of health."
+            "Zero warnings. Maximum swagger."
+            "System status: annoyingly perfect."
+            "No warnings detected. Proceed with confidence."
+        )
+        idx=$(( ok % ${#msgs[@]} ))
+        msg="${msgs[$idx]}"
+
+    elif (( warn == 1 )); then
+
+        face="🤔"
+        msgs=(
+            "One warning. I'm watching you."
+            "Single warning spotted—probably harmless. Probably."
+            "One tiny crack. Not a fire… yet."
+            "Almost perfect. Nature is healing."
+        )
+        idx=$(( warn % ${#msgs[@]} ))
+        msg="${msgs[$idx]}"
+
+    elif (( warn == 2 )); then
+
+        face="🟡"
+        msgs=(
+            "Two warnings. Still fine… but stop tempting fate."
+            "Minor turbulence. Fasten your seatbelt."
+            "Two warnings—edge of “meh”."
+            "Some concerns. Nothing a coffee can't fix."
+        )
+        idx=$(( warn % ${#msgs[@]} ))
+        msg="${msgs[$idx]}"
+
+    else
+
+        face="🧯"
+        msgs=(
+            "Warning party detected. Please disperse."
+            "This is not a build; it's a negotiation."
+            "Too many warnings. Your future self is screaming."
+            "Status: functional… emotionally unstable."
+            "We're in the “it works on my machine” zone."
+        )
+        idx=$(( warn % ${#msgs[@]} ))
+        msg="${msgs[$idx]}"
+
+    fi
+
+    printf '  %s %-18s %s\n' "${face}" "Final Status" "${msg}"
     printf '\n'
 
 }
+
 cmd_doctor () {
 
     local ok=0 warn=0 fail=0
