@@ -16,6 +16,44 @@ msrv_version () {
     tool_msrv_version
 
 }
+resolve_cmd () {
+
+    source <(parse "$@" -- :name:str)
+
+    case "${name}" in
+        taplo-cli) name="taplo" ;;
+        fd|fd-find) name="fdfind" ;;
+        ripgrep) name="rg" ;;
+        rust) name="rustc" ;;
+        bat) name="batcat" ;;
+        ci-cache-clean|semver-checks ) name="cargo-${name}" ;;
+    esac
+
+    local n="${name}" n1="${name//_/-}" n2="${name//-/_}"
+
+    command -v -- "${n}"  >/dev/null 2>&1 && { printf '%s\n' "${n}"; return 0; }
+    command -v -- "${n1}" >/dev/null 2>&1 && { printf '%s\n' "${n1}"; return 0; }
+    command -v -- "${n2}" >/dev/null 2>&1 && { printf '%s\n' "${n2}"; return 0; }
+
+    if [[ "${n}" != cargo-* ]]; then
+
+        [[ "${n}" == "miri" ]] && command -v -- cargo-miri >/dev/null 2>&1 && { printf '%s\n' "cargo +nightly miri"; return 0; }
+
+        command -v -- "cargo-${n}"  >/dev/null 2>&1 && { printf '%s\n' "cargo ${n}";  return 0; }
+        command -v -- "cargo-${n1}" >/dev/null 2>&1 && { printf '%s\n' "cargo ${n1}"; return 0; }
+        command -v -- "cargo-${n2}" >/dev/null 2>&1 && { printf '%s\n' "cargo ${n2}"; return 0; }
+
+    else
+
+        command -v -- "${n}"  >/dev/null 2>&1 && { printf '%s\n' "${n}"; return 0; }
+        command -v -- "${n1}" >/dev/null 2>&1 && { printf '%s\n' "${n1}"; return 0; }
+        command -v -- "${n2}" >/dev/null 2>&1 && { printf '%s\n' "${n2}"; return 0; }
+
+    fi
+
+    return 1
+
+}
 publishable_pkgs () {
 
     ensure cargo jq
@@ -54,8 +92,8 @@ run_cargo () {
     shift || true
 
     case "${sub}" in
-        add|bench|build|check|test|clean|doc|fetch|fix|generate-lockfile|help|init|install|locate-project|login|logout|metadata|new) : ;;
-        owner|package|pkgid|publish|remove|report|run|rustc|rustdoc|search|tree|uninstall|update|vendor|verify-project|version|yank) : ;;
+        add|rm|bench|build|check|test|clean|doc|fetch|fix|generate-lockfile|help|init|install|locate-project|login|logout|metadata|new|info) : ;;
+        owner|package|pkgid|publish|remove|report|run|rustc|rustdoc|search|tree|uninstall|update|upgrade|vendor|verify-project|version|yank) : ;;
         clippy|fmt|miri) ensure "${sub}" ;;
         *) ensure "cargo-${sub}" ;;
     esac
@@ -157,9 +195,12 @@ run_workspace () {
         [[ "${1}" == "all-on" ]] && all=1
         shift || true
     fi
-    if (( workspace )) && [[ "${command}" == "nextest" || "${command}" == "hack" ]]; then
-        nested="${1}"
-        shift || true
+
+    if [[ "${command}" == "nextest" || "${command}" == "hack" ]]; then
+        if [[ "${1-}" != "" && "${1}" != "--" && "${1}" != -* ]]; then
+            nested="${1}"
+            shift || true
+        fi
     fi
 
     for a in "$@"; do
@@ -167,7 +208,7 @@ run_workspace () {
         [[ "${a}" == "--" ]] && break
 
         case "${a}" in
-            -p|--package|--package=*|--manifest-path|--manifest-path=*|--workspace|--all)
+            -p|--package|--package=*|--manifest-path|--manifest-path=*|--workspace|--workspace=*|--all)
                 workspace=0
             ;;
         esac
@@ -279,10 +320,25 @@ run_workspace_publishable () {
     run_cargo "${command}" "${pkgs[@]}" "${extra[@]}" "$@"
 
 }
-rust_usage () {
+cargo_usage () {
 
     printf '%s\n' \
-        '    ensure              Ensure all used crates installed' \
+        '    ensure              Ensure all used tools/crates installed' \
+        '' \
+        '    list                List of installed cargo tools/crates' \
+        '    installed           Installed List of cargo tools' \
+        '    install             Install crate/s' \
+        '    uninstall           Uninstall crate/s' \
+        '    install-update      Install/Update cargo tool/s into latest version' \
+        '    show                Show package/tool/crate info, version if installed' \
+        '' \
+        '    add                 Add new crate/s into <--package *>' \
+        '    remove              remove crate/s from <--package *>' \
+        '    update              Update crate/s' \
+        '    upgrade             Upgrade crate/s into latest version' \
+        '    info                Information about <*crate-name*>' \
+        '    search              Search in crates store <*crate-name*>' \
+        '' \
         '    new                 Create a new crate and (optionally) add it to the workspace' \
         '    build               Build the whole workspace, or a single crate if specified' \
         '    run                 Run a binary (use -p/--package to pick a crate, or pass a bin name)' \
@@ -363,6 +419,101 @@ cmd_nightly () {
 cmd_msrv () {
 
     msrv_version
+
+}
+cmd_list () {
+
+    ensure cargo
+    run cargo --list "$@"
+
+}
+cmd_installed () {
+
+    run_cargo install --list "$@"
+
+}
+cmd_install () {
+
+    source <(parse "$@" -- :name:list)
+    run_cargo install "${name[@]}" "${kwargs[@]}"
+
+}
+cmd_uninstall () {
+
+    source <(parse "$@" -- :name:list)
+    run_cargo uninstall "${name[@]}" "${kwargs[@]}"
+
+}
+cmd_install_update () {
+
+    source <(parse "$@" -- :name:list="-a")
+    ensure cargo-update cargo-install-update
+    run_cargo install-update "${name[@]}" "${kwargs[@]}"
+
+}
+cmd_add () {
+
+    source <(parse "$@" -- :crate_name:list :package:str)
+    run_cargo add "${crate_name[@]}" --package "${package}" "${kwargs[@]}"
+
+}
+cmd_remove () {
+
+    source <(parse "$@" -- :crate_name:list :package:str)
+    run_cargo rm "${crate_name[@]}" --package "${package}" "${kwargs[@]}"
+
+}
+cmd_update () {
+
+    source <(parse "$@" -- crate_name:list)
+    run_cargo update "${crate_name[@]}" "${kwargs[@]}"
+
+}
+cmd_upgrade () {
+
+    source <(parse "$@" -- crate_name:list)
+
+    local -a pkg_args=()
+    local p=""
+
+    for p in "${crate_name[@]}"; do
+        [[ -n "${p}" ]] || continue
+        pkg_args+=( "--package" "${p}" )
+    done
+
+    ensure cargo-edit
+    run_cargo upgrade "${pkg_args[@]}" "${kwargs[@]}"
+
+}
+cmd_info () {
+
+    source <(parse "$@" -- :crate_name:list)
+    run_cargo info "${crate_name[@]}" "${kwargs[@]}"
+
+}
+cmd_search () {
+
+    run_cargo search "$@"
+
+}
+cmd_show () {
+
+    source <(parse "$@" -- :name:str)
+
+    local resolved="$(resolve_cmd "${name}")" || true
+    [[ -n "${resolved}" ]] || { error "${name}: Not found."; return 1; }
+
+    local -a cmd=()
+    read -r -a cmd <<< "${resolved}"
+
+    "${cmd[@]}" --version >/dev/null 2>&1 && { "${cmd[@]}" --version; return 0; }
+    "${cmd[@]}" -V        >/dev/null 2>&1 && { "${cmd[@]}" -V;        return 0; }
+    "${cmd[@]}" version   >/dev/null 2>&1 && { "${cmd[@]}" version;   return 0; }
+
+    success "${resolved}: Installed."
+    warn "${resolved}: can not detect version."
+
+    return 0
 
 }
 cmd_new () {
@@ -1170,25 +1321,24 @@ cmd_is_published () {
     elif (( n == 3 )); then path="3/${name_lc:0:1}/${name_lc}"
     else path="${name_lc:0:2}/${name_lc:2:2}/${name_lc}"; fi
 
-    local tmp="$(mktemp "${TMPDIR:-/tmp}/rust.XXXXXX")"
-    local code="$(curl -sSL -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
+    local tmp="$(mktemp "${TMPDIR:-/tmp}/rust.XXXXXX" 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/rust.$$")"
+    trap 'rm -f -- "${tmp}" 2>/dev/null || true; trap - RETURN' RETURN
+
+    local code="$(curl -sSL --connect-timeout 5 --max-time 20 -o "${tmp}" -w '%{http_code}' "https://index.crates.io/${path}" 2>/dev/null || true)"
+    [[ "${code}" =~ ^[0-9]{3}$ ]] || die "Error: crates.io request failed (network?)" 2
 
     if [[ "${code}" == "404" ]]; then
-        rm -f "${tmp}"
         echo "no"
         return 0
     fi
     if [[ "${code}" != "200" ]]; then
-        rm -f "${tmp}"
         die "Error: crates.io index request failed for ${name} (HTTP ${code})." 2
     fi
-    if grep -q "\"vers\":\"${version}\"" "${tmp}"; then
-        rm -f "${tmp}"
+    if grep -Fq "\"vers\":\"${version}\"" "${tmp}"; then
         echo "yes"
         return 0
     fi
 
-    rm -f "${tmp}"
     echo "no"
 
 }
@@ -1537,27 +1687,56 @@ cmd_meta () {
     run_cargo metadata "${cargo_args[@]}" | jq "${jq_args[@]}" "${filter}"
 
 }
-cmd_doctor () {
-
-    is_ci || { export RUSTFLAGS='-Dwarnings'; export RUST_BACKTRACE='1'; }
+cmd_doctor1 () {
 
     local ok=0 warn=0 fail=0
-    local distro="" wsl="no"
-    local os="$(uname -s 2>/dev/null || echo unknown)"
-    local kernel="$(uname -r 2>/dev/null || echo unknown)"
-    local arch="$(uname -m 2>/dev/null || echo unknown)"
-    local shell="${SHELL:-unknown}"
+    local distro="unknown" wsl="no"
+    local os="unknown" kernel="unknown" arch="unknown" shell="${SHELL:-unknown}"
 
-    [[ -r /etc/os-release ]] && distro="$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-unknown}")" || distro="unknown"
-    [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null && wsl="yes"
+    os="$(uname -s 2>/dev/null || echo unknown)"
+    kernel="$(uname -r 2>/dev/null || echo unknown)"
+    arch="$(uname -m 2>/dev/null || echo unknown)"
 
-    local cpu="$(lscpu 2>/dev/null | awk -F: '/Model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' || true)"
-    local cores="$(nproc 2>/dev/null || echo unknown)"
-    local mem="$(free -h 2>/dev/null | awk '/^Mem:/ { print $2 " total, " $7 " avail"; exit }' || true)"
+    if [[ -r /etc/os-release ]]; then
+        distro="$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-unknown}")"
+    elif [[ "${os}" == "Darwin" ]]; then
+        distro="macOS"
+    elif [[ "${os}" == MINGW* || "${os}" == MSYS* || "${os}" == CYGWIN* ]]; then
+        distro="Windows (Git Bash)"
+    fi
+
+    if [[ -r /proc/version ]] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+        wsl="yes"
+    fi
+
+    local cpu="" cores="unknown" mem="unknown"
     local disk="$(df -h . 2>/dev/null | awk 'NR==2 { print $4 " free of " $2 " (" $5 " used)"; exit }' || true)"
 
-    [[ -n "${cpu}" ]] || cpu="$(awk -F: '/model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
+    if command -v lscpu >/dev/null 2>&1; then
+        cpu="$(lscpu 2>/dev/null | awk -F: '/Model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' || true)"
+    fi
+    if [[ -z "${cpu}" && -r /proc/cpuinfo ]]; then
+        cpu="$(awk -F: '/model name/ { sub(/^[ \t]+/,"",$2); print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
+    fi
+    if [[ -z "${cpu}" && "${os}" == "Darwin" ]] && command -v sysctl >/dev/null 2>&1; then
+        cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+    fi
     [[ -n "${cpu}" ]] || cpu="unknown"
+
+    if command -v nproc >/dev/null 2>&1; then
+        cores="$(nproc 2>/dev/null || echo unknown)"
+    elif command -v getconf >/dev/null 2>&1; then
+        cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo unknown)"
+    elif [[ "${os}" == "Darwin" ]] && command -v sysctl >/dev/null 2>&1; then
+        cores="$(sysctl -n hw.ncpu 2>/dev/null || echo unknown)"
+    fi
+
+    if command -v free >/dev/null 2>&1; then
+        mem="$(free -h 2>/dev/null | awk '/^Mem:/ { print $2 " total, " $7 " avail"; exit }' || true)"
+    elif [[ "${os}" == "Darwin" ]] && command -v sysctl >/dev/null 2>&1; then
+        local mem_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+        [[ "${mem_bytes}" =~ ^[0-9]+$ ]] && mem="$(( mem_bytes / 1024 / 1024 ))Mi total"
+    fi
     [[ -n "${mem}" ]] || mem="unknown"
     [[ -n "${disk}" ]] || disk="unknown"
 
@@ -1605,15 +1784,23 @@ cmd_doctor () {
         printf '  ⚠️ %-18s %s\n' "Git:" "not a git repo"; warn=$(( warn + 1 ))
     fi
 
-    printf '\n=== Tooling ===\n\n'
+    printf '\n=== Tools ===\n\n'
 
     if has rustup; then
 
+        local rust_up="$(rustup -V 2>/dev/null || true)"
         local rustc_v="$(rustc -V 2>/dev/null || true)"
         local cargo_v="$(cargo -V 2>/dev/null || true)"
         local active_tc="$(rustup show active-toolchain 2>/dev/null | awk '{print $1}' || true)"
-        local stable_tc="${RUST_STABLE:-stable}"
-        local nightly_tc="${RUST_NIGHTLY:-nightly}"
+        local stable_tc="$(stable_version)"
+        local nightly_tc="$(nightly_version)"
+        local msrv_tc="$(msrv_version)"
+
+        if [[ -n "${rust_up}" ]]; then
+            printf '  ✅ %-18s %s\n' "rustup:" "${rust_up}"; ok=$(( ok + 1 ))
+        else
+            printf '  ❌ %-18s %s\n' "rustup:" "missing"; fail=$(( fail + 1 ))
+        fi
 
         if [[ -n "${rustc_v}" ]]; then
             printf '  ✅ %-18s %s\n' "rustc:" "${rustc_v}"; ok=$(( ok + 1 ))
@@ -1631,6 +1818,12 @@ cmd_doctor () {
             printf '  ✅ %-18s %s\n' "nightly:" "${nightly_tc} installed"; ok=$(( ok + 1 ))
         else
             printf '  ⚠️ %-18s %s\n' "nightly:" "${nightly_tc} missing"; warn=$(( warn + 1 ))
+        fi
+
+        if rustup toolchain list 2>/dev/null | awk '{print $1}' | grep -qE "^${msrv_tc}(\$|-)"; then
+            printf '  ✅ %-18s %s\n' "msrv:" "${msrv_tc} installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "msrv:" "${msrv_tc} missing"; warn=$(( warn + 1 ))
         fi
 
         if [[ -n "${active_tc}" ]]; then
@@ -1679,7 +1872,7 @@ cmd_doctor () {
         printf '  ⚠️ %-18s %s\n' "npm:" "missing"; warn=$(( warn + 1 ))
     fi
 
-    printf '\n=== Rustup ===\n\n'
+    printf '\n=== Rust ===\n\n'
 
     if has rustup; then
 
@@ -1697,6 +1890,12 @@ cmd_doctor () {
             printf '  ⚠️ %-18s %s\n' "clippy:" "missing"; warn=$(( warn + 1 ))
         fi
 
+        if rustup component list --toolchain "$(nightly_version)" --installed 2>/dev/null | awk '{print $1}' | grep -qE '^miri($|-)'; then
+            printf '  ✅ %-18s %s\n' "miri:" "installed"; ok=$(( ok + 1 ))
+        else
+            printf '  ⚠️ %-18s %s\n' "miri:" "missing"; warn=$(( warn + 1 ))
+        fi
+
         if rustup component list --toolchain "${active_tc}" --installed 2>/dev/null | awk '{print $1}' | grep -qE '^(llvm-tools|llvm-tools-preview)($|-)'; then
             printf '  ✅ %-18s %s\n' "llvm-tools:" "installed"; ok=$(( ok + 1 ))
         else
@@ -1706,13 +1905,13 @@ cmd_doctor () {
         if [[ -n "${RUSTFLAGS:-}" ]]; then
             printf '  ✅ %-18s %s\n' "RUSTFLAGS:" "${RUSTFLAGS}"; ok=$(( ok + 1 ))
         else
-            printf '  ⚠️ %-18s %s\n' "RUSTFLAGS:" "not set"; warn=$(( warn + 1 ))
+            printf '  ✅ %-18s %s\n' "RUSTFLAGS:" "not set"; ok=$(( ok + 1 ))
         fi
 
         if [[ -n "${RUST_BACKTRACE:-}" ]]; then
             printf '  ✅ %-18s %s\n' "RUST_BACKTRACE:" "${RUST_BACKTRACE}"; ok=$(( ok + 1 ))
         else
-            printf '  ⚠️ %-18s %s\n' "RUST_BACKTRACE:" "not set"; warn=$(( warn + 1 ))
+            printf '  ✅ %-18s %s\n' "RUST_BACKTRACE:" "not set"; ok=$(( ok + 1 ))
         fi
 
     else
@@ -1728,6 +1927,7 @@ cmd_doctor () {
         has cargo-deny && { printf '  ✅ %-18s %s\n' "cargo-deny:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-deny:" "missing"; warn=$(( warn + 1 )); }
         has cargo-audit && { printf '  ✅ %-18s %s\n' "cargo-audit:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-audit:" "missing"; warn=$(( warn + 1 )); }
         has cargo-semver-checks && { printf '  ✅ %-18s %s\n' "cargo-semver:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-semver:" "missing"; warn=$(( warn + 1 )); }
+        has cargo-spellcheck && { printf '  ✅ %-18s %s\n' "cargo-spellcheck:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-spellcheck:" "missing"; warn=$(( warn + 1 )); }
         has cargo-hack && { printf '  ✅ %-18s %s\n' "cargo-hack:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-hack:" "missing"; warn=$(( warn + 1 )); }
         has cargo-fuzz && { printf '  ✅ %-18s %s\n' "cargo-fuzz:" "installed"; ok=$(( ok + 1 )); } || { printf '  ⚠️ %-18s %s\n' "cargo-fuzz:" "missing"; warn=$(( warn + 1 )); }
 
@@ -1775,10 +1975,9 @@ cmd_ensure () {
     success_ln "Rustup Tools Installed\n"
 
     info_ln "Ensure Cargo Tools ..."
-    ensure cargo-deny cargo-audit cargo-spellcheck cargo-llvm-cov taplo cargo-nextest cargo-hack cargo-fuzz cargo-ci-cache-clean cargo-semver-checks
+    ensure cargo-llvm-cov cargo-nextest cargo-hack cargo-fuzz cargo-semver-checks
+    ensure cargo-deny cargo-audit cargo-spellcheck taplo cargo-ci-cache-clean cargo-edit
     success_ln "Cargo Tools Installed\n"
-
-    trap 'cmd_clean_cache >/dev/null 2>&1 || true' EXIT
 
 }
 cmd_ci_stable () {
@@ -1791,6 +1990,7 @@ cmd_ci_stable () {
     info_ln "Test ...\n"
     cmd_test "$@"
 
+    cmd_clean_cache
     success_ln "CI Stable Succeeded.\n"
 
 }
@@ -1804,6 +2004,7 @@ cmd_ci_nightly () {
     info_ln "Test Nightly ...\n"
     cmd_test --nightly "$@"
 
+    cmd_clean_cache
     success_ln "CI Nightly Succeeded.\n"
 
 }
@@ -1817,6 +2018,7 @@ cmd_ci_msrv () {
     info_ln "Test Msrv ...\n"
     cmd_test --msrv "$@"
 
+    cmd_clean_cache
     success_ln "CI Msrv Succeeded.\n"
 
 }
@@ -1830,6 +2032,7 @@ cmd_ci_doc () {
     info_ln "Test Doc ...\n"
     cmd_test_doc "$@"
 
+    cmd_clean_cache
     success_ln "CI Doc Succeeded.\n"
 
 }
@@ -1855,6 +2058,7 @@ cmd_ci_lint () {
     info_ln "Check Spellcheck ...\n"
     cmd_spell_check "$@"
 
+    cmd_clean_cache
     success_ln "CI Lint Succeeded.\n"
 
 }
@@ -1865,6 +2069,7 @@ cmd_ci_hack () {
     info_ln "Hack ...\n"
     cmd_hack "$@"
 
+    cmd_clean_cache
     success_ln "CI Hack Succeeded.\n"
 
 }
@@ -1875,6 +2080,7 @@ cmd_ci_fuzz () {
     info_ln "Fuzz ...\n"
     cmd_fuzz "$@"
 
+    cmd_clean_cache
     success_ln "CI Fuzz Succeeded.\n"
 
 }
@@ -1885,6 +2091,7 @@ cmd_ci_sanitizer () {
     info_ln "Sanitizer ...\n"
     cmd_sanitizer "$@"
 
+    cmd_clean_cache
     success_ln "CI Sanitizer Succeeded.\n"
 
 }
@@ -1895,6 +2102,7 @@ cmd_ci_miri () {
     info_ln "Miri ...\n"
     cmd_miri "$@"
 
+    cmd_clean_cache
     success_ln "CI Miri Succeeded.\n"
 
 }
@@ -1905,6 +2113,7 @@ cmd_ci_semver () {
     info_ln "Semver ...\n"
     cmd_semver "$@"
 
+    cmd_clean_cache
     success_ln "CI Semver Succeeded.\n"
 
 }
@@ -1915,6 +2124,7 @@ cmd_ci_coverage () {
     info_ln "Coverage ...\n"
     cmd_coverage "$@"
 
+    cmd_clean_cache
     success_ln "CI Coverage Succeeded.\n"
 
 }
@@ -1925,6 +2135,7 @@ cmd_ci_publish () {
     info_ln "Publish ...\n"
     cmd_publish "$@"
 
+    cmd_clean_cache
     success_ln "CI Publish Succeeded.\n"
 
 }
@@ -1992,6 +2203,7 @@ cmd_ci_local () {
     info_ln "Coverage ...\n"
     cmd_coverage
 
+    cmd_clean_cache
     success_ln "CI Pipeline Succeeded.\n"
 
 }

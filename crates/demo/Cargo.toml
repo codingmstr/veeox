@@ -12,7 +12,8 @@ description = "demo: this is a demo crate"
 categories = ["development-tools"]
 keywords = ["demo"]
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+tokio = "1.49.0"

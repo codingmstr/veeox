@@ -263,9 +263,7 @@ ensure_crate () {
     tool_export_cargo_bin
 
     has "${bin}" && return 0
-
     run cargo install --locked "${crate}" "$@" || die "Failed to install: ${crate}" 2
-    has "${bin}" || die "Installed ${crate} but '${bin}' not found in PATH (check ~/.cargo/bin)." 2
 
 }
 ensure_node () {

@@ -512,7 +512,7 @@ git_default_branch () {
     return 1
 
 }
-git_usage () {
+github_usage () {
 
     printf '    %s\n' \
         "init" \
@@ -684,7 +684,7 @@ cmd_remote () {
 cmd_push () {
 
     git_repo_guard
-    source <(parse "$@" -- remote=origin auth key token token_env branch message tag force:bool changelog:bool release:bool)
+    source <(parse "$@" -- remote=origin auth key token token_env branch message tag t force:bool f:bool changelog:bool log:bool release:bool)
 
     git_require_remote "${remote}"
 
@@ -692,9 +692,11 @@ cmd_push () {
     IFS=$'\t' read -r kind target safe ssh_cmd < <(git_auth_resolve "${auth}" "${remote}" "${key}" "${token}" "${token_env}")
     [[ -n "${kind}" && -n "${target}" ]] || die "Failed to resolve git auth for remote '${remote}'." 2
 
-    if (( release )); then
-        [[ -z "${tag}" ]] && tag="auto"
-    fi
+    (( f )) && force=1
+    (( log )) && changelog=1
+    [[ -z "${tag}" ]] && tag="${t}"
+    (( release )) && [[ -z "${tag}" ]] && tag="auto"
+
     if [[ -n "${tag}" ]]; then
         [[ "${tag}" == "auto" ]] && tag="v$(git_root_version)"
         tag="$(git_norm_tag "${tag}")"
