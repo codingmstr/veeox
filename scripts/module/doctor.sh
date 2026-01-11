@@ -434,7 +434,7 @@ doctor_summary () {
 
     elif (( warn == 1 )); then
 
-        msg="😉 One tiny crack. Not a fire… yet ☕"
+        msg="😉 One tiny crack ☕"
 
     elif (( warn == 2 )); then
 
@@ -450,7 +450,6 @@ doctor_summary () {
     printf '\n'
 
 }
-
 cmd_doctor () {
 
     local ok=0 warn=0 fail=0
