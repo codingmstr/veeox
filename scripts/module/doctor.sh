@@ -417,49 +417,36 @@ doctor_summary () {
 
     info_ln '==> Summary \n'
 
-    printf '  ✅ %-18s %s\n\n' "OK"   "( ${ok} )"
-    printf '  ⚠️ %-18s %s\n\n' "Warn" "( ${warn} )"
-    printf '  ❌ %-18s %s\n\n' "Fail" "( ${fail} )"
+    printf '  ✅ %-18s %s\n' "OK"   "( ${ok} )"
+    printf '  ⚠️ %-18s %s\n' "Warn" "( ${warn} )"
+    printf '  ❌ %-18s %s\n' "Fail" "( ${fail} )"
 
     local face="" msg="" idx=0
     local -a msgs=()
 
     if (( fail > 0 )); then
 
-        face="🚨"
-        msgs=(
-            "Hard fail. Stop. Fix. Repeat."
-            "Red alert. The compiler is not amused."
-            "Failures detected. Reality disagrees with you."
-            "Build is down. Ego is optional."
-            "This isn't a pipeline… it's a crime scene."
-        )
-        idx=$(( fail % ${#msgs[@]} ))
-        msg="${msgs[$idx]}"
+        msg="😡 This isn't a pipeline… it's a crime scene !"
 
     elif (( warn == 0 )); then
 
-        face="😎"
-        msg="👌 All is awsome 💯"
+        msg="😎 All is awsome 💯👌"
 
     elif (( warn == 1 )); then
 
-        face="🤔"
-        msg="One tiny crack. Not a fire… yet."
+        msg="😉 One tiny crack. Not a fire… yet ☕"
 
     elif (( warn == 2 )); then
 
-        face="😭"
-        msg="Two warnings. Still fine… but stop tempting fate."
+        msg="⚠️ Two warnings. Still fine 😮‍💨"
 
     else
 
-        face="😧"
-        msg="Too many warnings. Your future self is screaming"
+        msg="😨 Too many warnings !"
 
     fi
 
-    printf '  %s %-18s %s\n' "${face}" "Finally" "${msg}"
+    printf '  %s %-18s %s\n' "🤔" "Status" "( ${msg} )"
     printf '\n'
 
 }
