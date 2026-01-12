@@ -44,11 +44,12 @@ load_walk () {
     fi
 
     local nullglob_was_set=0
+
     shopt -q nullglob && nullglob_was_set=1
     shopt -s nullglob
 
-    local -a extra_skip=()
     local file="" base="" name="" subdir="" sd=""
+    local -a extra_skip=()
 
     (( $# > 0 )) && extra_skip=( "$@" ) || extra_skip=()
 
@@ -56,6 +57,7 @@ load_walk () {
 
         base="${file##*/}"
         [[ -n "${base}" ]] || continue
+
         name="${base%.sh}"
 
         case "${mode}" in
@@ -84,6 +86,7 @@ load_walk () {
         esac
 
     done
+
     for subdir in "${dir}"/*/; do
 
         sd="${subdir%/}"
@@ -142,21 +145,21 @@ render_doc () {
 
     load_source "${dir}" || return $?
 
+    info_ln "Usage:\n"
     printf '%s\n' \
-        '' \
-        'Usage:' \
         "    __alias__ [--yes] [--quiet] [--verbose] <cmd> [args...]" \
-        '' \
-        'Global:' \
+        ''
+
+    info_ln "Global:\n"
+    printf '%s\n' \
         '    --yes,    -y     Non-interactive (assume yes)' \
         '    --quiet,  -q     Less output' \
         '    --verbose,-v     Print executed commands' \
         ''
 
-
     local -A seen=()
     local -a mods=()
-    local name="" mod="" fn1="" fn2="" fn3="" fn4="" chosen="" title="" printed=0
+    local name="" mod="" chosen="" title="" printed=0
 
     load_walk doc "${dir}" seen mods || return 2
 
@@ -165,22 +168,26 @@ render_doc () {
         mod="${name//-/_}"
         mod="${mod//./_}"
 
-        fn1="${mod}_usage"
-        fn2="help_${mod}"
-        fn3="${mod}_help"
-        fn4="usage_${mod}"
+        local fn1="${mod}_usage"
+        local fn2="help_${mod}"
+        local fn3="${mod}_help"
+        local fn4="usage_${mod}"
+        local fn5="cmd_${mod}_usage"
+        local fn6="cmd_help_${mod}"
+        local fn7="cmd_${mod}_help"
+        local fn8="cmd_usage_${mod}"
         chosen=""
 
         declare -F "${fn1}" >/dev/null 2>&1 && chosen="${fn1}"
         [[ -z "${chosen}" ]] && declare -F "${fn2}" >/dev/null 2>&1 && chosen="${fn2}"
         [[ -z "${chosen}" ]] && declare -F "${fn3}" >/dev/null 2>&1 && chosen="${fn3}"
         [[ -z "${chosen}" ]] && declare -F "${fn4}" >/dev/null 2>&1 && chosen="${fn4}"
+        [[ -z "${chosen}" ]] && declare -F "${fn5}" >/dev/null 2>&1 && chosen="${fn5}"
+        [[ -z "${chosen}" ]] && declare -F "${fn6}" >/dev/null 2>&1 && chosen="${fn6}"
+        [[ -z "${chosen}" ]] && declare -F "${fn7}" >/dev/null 2>&1 && chosen="${fn7}"
+        [[ -z "${chosen}" ]] && declare -F "${fn8}" >/dev/null 2>&1 && chosen="${fn8}"
         [[ -n "${chosen}" ]] || continue
 
-        title="${mod//_/ }"
-        title="$(uc_first "${title}")"
-
-        printf '%s:\n' "${title}"
         "${chosen}" || true
 
         printed=1

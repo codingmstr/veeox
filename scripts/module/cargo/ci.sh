@@ -1,42 +1,26 @@
 #!/usr/bin/env bash
 
-ci_usage () {
+cmd_ci_help () {
 
-    printf '%s\n' \
-        '    ensure              Ensure all used tools/crates installed' \
-        '' \
-        '    ci-stable           CI stable pipeline (check + test + clippy)' \
-        '    ci-lint             CI lint pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)' \
-        '    ci-doc              CI docs pipeline (check-doc + test-doc)' \
-        '    ci-hack             CI feature-matrix pipeline (cargo-hack)' \
-        '    ci-fuzz             CI fuzz pipeline (runs targets with timeout & corpus)' \
-        '    ci-sanitizer        CI sanitizer pipeline' \
-        '    ci-miri             CI pipeline' \
-        '    ci-coverage         CI coverage pipeline (llvm-cov)' \
-        '    ci-msrv             CI MSRV pipeline (check + test --no-run on MSRV toolchain)' \
-        '    ci-nightly          CI NIGHTLY pipeline (check + test --no-run on NIGHTLY toolchain)' \
-        '    ci-semver           CI SEMVER pipeline (check semver)' \
-        '    ci-publish          CI publish gate then publish (full checks + publish)' \
-        '' \
-        '    ci-local            Run a local CI full workflow ci pipline ( full ci-xxx features )' \
+    info_ln "CI :\n"
+
+    printf '    %s\n' \
+        "ci-stable           CI stable pipeline (check + test + clippy)" \
+        "ci-lint             CI lint pipeline (check-fmt + check-audit + check-taplo + check-prettier + spellcheck)" \
+        "ci-doc              CI docs pipeline (check-doc + test-doc)" \
+        "" \
+        "ci-hack             CI feature-matrix pipeline (cargo-hack)" \
+        "ci-fuzz             CI fuzz pipeline (runs targets with timeout & corpus)" \
+        "ci-sanitizer        CI sanitizer pipeline" \
+        "ci-miri             CI pipeline" \
+        "ci-coverage         CI coverage pipeline (llvm-cov)" \
+        "ci-msrv             CI MSRV pipeline (check + test --no-run on MSRV toolchain)" \
+        "ci-nightly          CI NIGHTLY pipeline (check + test --no-run on NIGHTLY toolchain)" \
+        "ci-semver           CI SEMVER pipeline (check semver)" \
+        "" \
+        "ci-publish          CI publish gate then publish (full checks + publish)" \
+        "ci-local            Run a local CI full workflow ci pipline ( full ci-xxx features )" \
         ''
-
-}
-
-cmd_ensure () {
-
-    info_ln "Ensure OS Tools ..."
-    ensure jq perl grep curl clang llvm-config libclang-dev hunspell awk tail sed sort head wc xargs find git node
-    success_ln "OS Tools Installed\n"
-
-    info_ln "Ensure Rustup Tools ..."
-    ensure cargo rustfmt clippy llvm-tools-preview
-    success_ln "Rustup Tools Installed\n"
-
-    info_ln "Ensure Cargo Tools ..."
-    ensure cargo-llvm-cov cargo-nextest cargo-hack cargo-fuzz cargo-semver-checks
-    ensure cargo-deny cargo-audit cargo-spellcheck taplo cargo-ci-cache-clean cargo-edit
-    success_ln "Cargo Tools Installed\n"
 
 }
 cmd_ci_stable () {
