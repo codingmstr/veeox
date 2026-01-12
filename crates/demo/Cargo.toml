@@ -16,4 +16,3 @@ keywords = ["demo"]
 workspace = true
 
 [dependencies]
-tokio = "1.49.0"

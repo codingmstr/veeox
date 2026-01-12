@@ -25,6 +25,96 @@ should_skip () {
     return 1
 
 }
+load_walk () {
+
+    local mode="${1-}"
+    local dir="${2-}"
+    local seen_ref="${3-}"
+    local mods_ref="${4-}"
+
+    shift 4 || true
+
+    [[ -n "${mode}" ]] || { die "load_walk: missing mode" 2; return 2; }
+    [[ -n "${dir}" && -d "${dir}" ]] || return 0
+
+    if [[ "${mode}" == "doc" ]]; then
+        [[ -n "${seen_ref}" && -n "${mods_ref}" ]] || { die "load_walk: doc requires seen/mods refs" 2; return 2; }
+        local -n _seen="${seen_ref}"
+        local -n _mods="${mods_ref}"
+    fi
+
+    local nullglob_was_set=0
+    shopt -q nullglob && nullglob_was_set=1
+    shopt -s nullglob
+
+    local -a extra_skip=()
+    local file="" base="" name="" subdir="" sd=""
+
+    (( $# > 0 )) && extra_skip=( "$@" ) || extra_skip=()
+
+    for file in "${dir}"/*.sh; do
+
+        base="${file##*/}"
+        [[ -n "${base}" ]] || continue
+        name="${base%.sh}"
+
+        case "${mode}" in
+            source)
+                should_skip "${name}" "${extra_skip[@]-}" && continue
+
+                source "${file}" || {
+                    (( nullglob_was_set )) || shopt -u nullglob
+                    die "Failed to source: ${file}" 2
+                    return 2
+                }
+            ;;
+            doc)
+                should_skip "${name}" && continue
+
+                [[ -n "${_seen[${name}]-}" ]] && continue
+                _seen["${name}"]=1
+
+                _mods+=( "${name}" )
+            ;;
+            *)
+                (( nullglob_was_set )) || shopt -u nullglob
+                die "load_walk: unknown mode '${mode}'" 2
+                return 2
+            ;;
+        esac
+
+    done
+    for subdir in "${dir}"/*/; do
+
+        sd="${subdir%/}"
+        [[ -L "${sd}" ]] && continue
+
+        base="${sd##*/}"
+        [[ -n "${base}" ]] || continue
+
+        case "${mode}" in
+            source)
+                should_skip "${base}" "${extra_skip[@]-}" && continue
+                load_walk source "${sd}" "" "" "${extra_skip[@]-}" || {
+                    (( nullglob_was_set )) || shopt -u nullglob
+                    return $?
+                }
+            ;;
+            doc)
+                should_skip "${base}" && continue
+                load_walk doc "${sd}" "${seen_ref}" "${mods_ref}" || {
+                    (( nullglob_was_set )) || shopt -u nullglob
+                    return $?
+                }
+            ;;
+        esac
+
+    done
+
+    (( nullglob_was_set )) || shopt -u nullglob
+    return 0
+
+}
 load_source () {
 
     [[ -n "${MODULES_LOADED-}" ]] && return 0
@@ -42,29 +132,7 @@ load_source () {
     local -a extra_skip=()
     (( $# > 1 )) && extra_skip=( "${@:2}" ) || extra_skip=()
 
-    local file="" base="" name="" nullglob_was_set=0
-
-    shopt -q nullglob && nullglob_was_set=1
-    shopt -s nullglob
-
-    for file in "${dir}"/*.sh; do
-
-        base="${file##*/}"
-        [[ -n "${base}" ]] || continue
-
-        name="${base%.sh}"
-        should_skip "${name}" "${extra_skip[@]-}" && continue
-
-        source "${file}" || {
-            (( nullglob_was_set )) || shopt -u nullglob
-            die "Failed to source: ${file}" 2
-            return 2
-        }
-
-    done
-
-    (( nullglob_was_set )) || shopt -u nullglob
-    return 0
+    load_walk source "${dir}" "" "" "${extra_skip[@]-}"
 
 }
 render_doc () {
@@ -85,18 +153,14 @@ render_doc () {
         '    --verbose,-v     Print executed commands' \
         ''
 
-    local nullglob_was_set=0
-    shopt -q nullglob && nullglob_was_set=1
-    shopt -s nullglob
 
-    local file="" name="" mod="" fn1="" fn2="" fn3="" fn4="" chosen="" title="" printed=0
+    local -A seen=()
+    local -a mods=()
+    local name="" mod="" fn1="" fn2="" fn3="" fn4="" chosen="" title="" printed=0
 
-    for file in "${dir}"/*.sh; do
+    load_walk doc "${dir}" seen mods || return 2
 
-        name="${file##*/}"
-        name="${name%.sh}"
-
-        should_skip "${name}" && continue
+    for name in "${mods[@]-}"; do
 
         mod="${name//-/_}"
         mod="${mod//./_}"
@@ -123,7 +187,6 @@ render_doc () {
 
     done
 
-    (( nullglob_was_set )) || shopt -u nullglob
     (( printed )) || printf '%s\n' '(no module usage found)' ''
 
 }
