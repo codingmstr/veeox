@@ -1,32 +1,5 @@
 #!/usr/bin/env bash
 
-cmd_doctor_help () {
-
-    info_ln "Doctor :\n"
-
-    printf '    %s\n' \
-        "doctor              Summery of (system + tools + git) full diagnostics" \
-        "ensure              Ensure all used tools/crates installed" \
-        ''
-
-}
-cmd_ensure () {
-
-    info_ln "Ensure OS Tools ..."
-    ensure jq perl grep curl clang llvm-config libclang-dev hunspell awk tail sed sort head wc xargs find git node
-    success_ln "OS Tools Installed\n"
-
-    info_ln "Ensure Rustup Tools ..."
-    ensure cargo rustfmt clippy llvm-tools-preview
-    success_ln "Rustup Tools Installed\n"
-
-    info_ln "Ensure Cargo Tools ..."
-    ensure cargo-llvm-cov cargo-nextest cargo-hack cargo-fuzz cargo-semver-checks
-    ensure cargo-deny cargo-audit cargo-spellcheck taplo cargo-ci-cache-clean cargo-edit
-    success_ln "Cargo Tools Installed\n"
-
-}
-
 doctor_pick_ver_line () {
 
     local s="${1-}"
@@ -417,6 +390,9 @@ doctor_cargo () {
     doctor_cargo_sub "cargo-spellcheck" "spellcheck"     "cargo-spellcheck"
     doctor_cargo_sub "cargo-hack"       "hack"           "cargo-hack"
     doctor_cargo_sub "cargo-fuzz"       "fuzz"           "cargo-fuzz"
+    doctor_cargo_sub "cargo-udeps"      "udeps"          "cargo-udeps"
+    doctor_cargo_sub "cargo-bloat"      "bloat"          "cargo-bloat"
+    doctor_cargo_sub "cargo-vet"        "vet"            "cargo-vet"
     doctor_cargo_sub "cargo-upgrade"    "upgrade"        "cargo-upgrade"
 
     if [[ -d fuzz ]] && [[ -f fuzz/Cargo.toml ]] && has cargo-fuzz; then
@@ -468,6 +444,33 @@ doctor_summary () {
 
     printf '  %s %-18s %s\n' "🤔" "Status" "( ${msg} )"
     printf '\n'
+
+}
+
+cmd_doctor_help () {
+
+    info_ln "Doctor :\n"
+
+    printf '    %s\n' \
+        "doctor              Summery of (system + tools + git) full diagnostics" \
+        "ensure              Ensure all used tools/crates installed" \
+        ''
+
+}
+cmd_ensure () {
+
+    info_ln "Ensure OS Tools ..."
+    ensure jq perl grep curl clang llvm-config libclang-dev hunspell awk tail sed sort head wc xargs find git node
+    success_ln "OS Tools Installed\n"
+
+    info_ln "Ensure Rustup Tools ..."
+    ensure cargo llvm-tools-preview rustfmt clippy taplo
+    success_ln "Rustup Tools Installed\n"
+
+    info_ln "Ensure Cargo Tools ..."
+    ensure cargo-llvm-cov cargo-nextest cargo-semver-checks cargo-spellcheck cargo-ci-cache-clean
+    ensure cargo-deny cargo-audit cargo-edit cargo-udeps cargo-bloat cargo-vet cargo-fuzz cargo-hack
+    success_ln "Cargo Tools Installed\n"
 
 }
 cmd_doctor () {

@@ -44,6 +44,12 @@ cmd_vet () {
     run_cargo vet check "$@"
 
 }
+cmd_vet_check () {
+
+    cmd_ensure_vet
+    run_cargo vet check "$@"
+
+}
 cmd_vet_suggest () {
 
     cmd_ensure_vet

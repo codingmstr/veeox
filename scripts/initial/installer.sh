@@ -283,36 +283,36 @@ usage () {
     # ------ placeholders ------
     # --------------------------
     # __ALIAS_
-    # __NAME__
-    # __USER__
-    # __REPO__
-    # __BRANCH__
-    # __DESCRIPTION__
-    # __REPO_URL__
-    # __SITE_URL__
-    # __DOCS_URL__
-    # __DISCORD_URL__
-    # __ISSUES_URL__
-    # __NEW_ISSUE_URL__
-    # __BUG_REPORT_URL__
-    # __FEATURE_REQUEST_URL__
-    # __DISCUSSIONS_URL__
-    # __COMMUNITY_URL__
-    # __CATEGORIES_URL__
-    # __ANNOUNCEMENTS_URL__
-    # __GENERAL_URL__
-    # __IDEAS_URL__
-    # __POLLS_URL__
-    # __QA_URL__
-    # __SHOW_AND_TELL_URL__
-    # __SUPPORT_URL__
-    # __SECURITY_URL__
-    # __README_URL__
-    # __CONTRIBUTING_URL__
-    # __CODE_OF_CONDUCT_URL__
-    # __CHANGELOG_URL__
-    # __PULL_REQUEST_TEMPLATE_URL__
-    # __ISSUE_TEMPLATES_URL__
+    # __NAME_
+    # __USER_
+    # __REPO_
+    # __BRANCH_
+    # __DESCRIPTION_
+    # __REPO_URL_
+    # __SITE_URL_
+    # __DOCS_URL_
+    # __DISCORD_URL_
+    # __ISSUES_URL_
+    # __NEW_ISSUE_URL_
+    # __BUG_REPORT_URL_
+    # __FEATURE_REQUEST_URL_
+    # __DISCUSSIONS_URL_
+    # __COMMUNITY_URL_
+    # __CATEGORIES_URL_
+    # __ANNOUNCEMENTS_URL_
+    # __GENERAL_URL_
+    # __IDEAS_URL_
+    # __POLLS_URL_
+    # __QA_URL_
+    # __SHOW_AND_TELL_URL_
+    # __SUPPORT_URL_
+    # __SECURITY_URL_
+    # __README_URL_
+    # __CONTRIBUTING_URL_
+    # __CODE_OF_CONDUCT_URL_
+    # __CHANGELOG_URL_
+    # __PULL_REQUEST_TEMPLATE_URL_
+    # __ISSUE_TEMPLATES_URL_
     # --------------------------
 
 }

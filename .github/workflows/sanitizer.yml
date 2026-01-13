@@ -1,17 +1,17 @@
-name: Fuzz
+name: Sanitizer
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 1 * * *'
+    - cron: '0 2 * * *'
 
 concurrency:
-  group: fuzz-${{ github.workflow }}-${{ github.ref }}
+  group: sanitizer-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  fuzz:
+  sanitizer:
     uses: ./.github/workflows/_base.yml
     with:
       profile: nightly
-      command: ci-fuzz --timeout 3600 --len 10000
+      command: ci-sanitizer

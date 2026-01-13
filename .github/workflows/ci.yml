@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  workflow_dispatch:
+
   push:
     branches: ['main']
     tags: ['v*']
@@ -8,257 +10,150 @@ on:
   pull_request:
     branches: ['main']
 
-  workflow_dispatch:
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
-permissions:
-  contents: read
-
-defaults:
-  run:
-    shell: bash
-
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: '-Dwarnings'
-  RUST_BACKTRACE: '1'
-  RUST_STABLE: stable
-  RUST_MSRV: '1.90.0'
-  RUST_NIGHTLY: nightly-2026-01-01
-  NODE_VERSION: '25'
 
 jobs:
   stable:
-    name: stable
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-STABLE
-        run: bash ./scripts/run.sh ci-stable
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-stable
 
   nightly:
-    name: nightly
-    runs-on: ubuntu-latest
-    continue-on-error: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_NIGHTLY }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-NIGHTLY
-        run: bash ./scripts/run.sh ci-nightly
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: nightly
+      command: ci-nightly
 
   msrv:
-    name: msrv
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: msrv
+      command: ci-msrv
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_MSRV }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-MSRV
-        run: bash ./scripts/run.sh ci-msrv
-
-  doc:
-    name: doc
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-DOC
-        run: bash ./scripts/run.sh ci-doc
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-LINT
-        run: bash ./scripts/run.sh ci-lint
-
-  hack:
-    name: hack
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-HACK
-        run: bash ./scripts/run.sh ci-hack
-
-  cross:
-    name: ${{ matrix.os }} (stable)
-    runs-on: ${{ matrix.os }}
-
+  cross_stable:
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-stable
+      runner: ${{ matrix.os }}
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
+  cross_nightly:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
 
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: nightly
+      command: ci-nightly
+      runner: ${{ matrix.os }}
 
-      - name: Run CI-STABLE
-        run: bash ./scripts/run.sh ci-stable
+  cross_msrv:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: msrv
+      command: ci-msrv
+      runner: ${{ matrix.os }}
+
+  doc:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-doc
+
+  lint:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-lint
 
   semver:
-    name: semver
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-semver
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+  clippy:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-clippy
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
+  audit:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-audit
 
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+  vet:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-vet
 
-      - name: Run CI-SEMVER
-        run: bash ./scripts/run.sh ci-semver
+  hack:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-hack
 
-  fuzz:
-    name: fuzz
-    runs-on: ubuntu-latest
-    continue-on-error: true
+  udeps:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-udeps
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_NIGHTLY }}
-
-      - name: Setup Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: CI FUZZ
-        run: bash ./scripts/run.sh ci-fuzz --timeout 10 --len 5000
+  bloat:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-bloat --out bloat.info
 
   coverage:
-    name: coverage
-    runs-on: ubuntu-latest
+    secrets: inherit
+    needs:
+      [
+        stable,
+        nightly,
+        msrv,
+        cross_stable,
+        cross_nightly,
+        cross_msrv,
+        doc,
+        lint,
+        semver,
+        clippy,
+        audit,
+        vet,
+        hack,
+        udeps,
+        bloat,
+      ]
 
-    needs: [stable, lint, doc, hack, cross, msrv, semver]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Coverage
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        run: bash ./scripts/run.sh ci-coverage --upload
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-coverage --upload
 
   publish:
-    name: publish
-    runs-on: ubuntu-latest
+    secrets: inherit
+    needs: [coverage]
 
-    needs: [stable, lint, doc, hack, cross, msrv, semver, coverage]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_STABLE }}
-
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run CI-Publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: bash ./scripts/run.sh ci-publish
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: stable
+      command: ci-publish

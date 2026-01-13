@@ -5,23 +5,23 @@ cmd_lint_help () {
     info_ln "Lint :\n"
 
     printf '    %s\n' \
-        "clippy              Run lints on crates/ only (strict)" \
-        "clippy-strict       Run lints on the full workspace (very strict)" \
+        "clippy              Run clippy on crates only publishable" \
+        "clippy-strict       Run clippy on full workspace with not publishable crates too" \
         "" \
-        "fix-ws              Remove trailing whitespace in git-tracked files" \
-        "check-fmt           Verify formatting --nightly (no changes)" \
-        "fix-fmt             Auto-format code --nightly" \
-        "check-fmt-stable    Verify formatting checks (no changes)" \
-        "fix-fmt-stable      Auto-format code" \
+        "audit-check         Security advisory checks (policy gate)" \
+        "audit-fix           Apply automatic dependency upgrades to address advisories" \
         "" \
-        "check-audit         Security advisory checks (policy gate)" \
-        "fix-audit           Apply automatic dependency upgrades to address advisories" \
+        "ws-fix              Remove trailing whitespace in git-tracked files" \
+        "fmt-check           Verify formatting --nightly (no changes)" \
+        "fmt-fix             Auto-format code --nightly" \
+        "fmt-stable-check    Verify formatting checks (no changes)" \
+        "fmt-stable-fix      Auto-format code" \
         "" \
-        "check-taplo         Validate TOML formatting (no changes)" \
-        "fix-taplo           Auto-format TOML files" \
+        "taplo-check         Validate TOML formatting (no changes)" \
+        "taplo-fix           Auto-format TOML files" \
         "" \
-        "check-prettier      Validate formatting for Markdown/YAML/etc. (no changes)" \
-        "fix-prettier        Auto-format Markdown/YAML/etc." \
+        "prettier-check      Validate formatting for Markdown/YAML/etc. (no changes)" \
+        "prettier-fix        Auto-format Markdown/YAML/etc." \
         "" \
         "spell-check         Spellcheck docs and text files" \
         "spell-add           Add item into spellcheck dic file" \
@@ -41,7 +41,21 @@ cmd_clippy_strict () {
 
 }
 
-cmd_fix_ws () {
+cmd_audit_check () {
+
+    run_cargo deny check advisories bans licenses sources "$@"
+
+}
+cmd_audit_fix () {
+
+    local adv="${HOME}/.cargo/advisory-db"
+    [[ -d "${adv}" ]] && [[ ! -d "${adv}/.git" ]] && mv "${adv}" "${adv}.broken.$(date +%s)" || true
+
+    run_cargo audit fix "$@"
+
+}
+
+cmd_ws_fix () {
 
     ensure git perl
 
@@ -55,55 +69,41 @@ cmd_fix_ws () {
     done < <(git ls-files -z)
 
 }
-cmd_check_fmt () {
+cmd_fmt_check () {
 
     run_cargo fmt --nightly --all -- --check "$@"
 
 }
-cmd_fix_fmt () {
+cmd_fmt_fix () {
 
     run_cargo fmt --nightly --all "$@"
 
 }
-cmd_check_fmt_stable () {
+cmd_fmt_stable_check () {
 
     run_cargo fmt --all -- --check "$@"
 
 }
-cmd_fix_fmt_stable () {
+cmd_fmt_stable_fix () {
 
     run_cargo fmt --all "$@"
 
 }
 
-cmd_check_audit () {
-
-    run_cargo deny check advisories bans licenses sources "$@"
-
-}
-cmd_fix_audit () {
-
-    local adv="${HOME}/.cargo/advisory-db"
-    [[ -d "${adv}" ]] && [[ ! -d "${adv}/.git" ]] && mv "${adv}" "${adv}.broken.$(date +%s)" || true
-
-    run_cargo audit fix "$@"
-
-}
-
-cmd_check_taplo () {
+cmd_taplo_check () {
 
     ensure taplo
     run taplo fmt --check "$@"
 
 }
-cmd_fix_taplo () {
+cmd_taplo_fix () {
 
     ensure taplo
     run taplo fmt "$@"
 
 }
 
-cmd_check_prettier () {
+cmd_prettier_check () {
 
     ensure node
 
@@ -114,7 +114,7 @@ cmd_check_prettier () {
         "$@"
 
 }
-cmd_fix_prettier () {
+cmd_prettier_fix () {
 
     ensure node
 

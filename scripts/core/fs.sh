@@ -801,7 +801,6 @@ replace_map () {
     done
 
     (( ${#pairs[@]} )) || return 1
-
     LC_ALL=C grep -Fq "${grep_args[@]}" -- "${file}" 2>/dev/null || return 1
 
     perl -i -pe '
@@ -840,10 +839,10 @@ replace_map () {
     ' "${pairs[@]}" -- "${file}" || {
         local rc=$?
         (( rc == 1 )) && return 1
-        die "replace_map: failed: ${file}" 2
+        die "replace_map: failed to replace map in ${file}" 2
     }
 
-    log "${file}: map_replace"
+    success "Ok: map replaced in ${file}"
     return 0
 
 }
@@ -898,8 +897,7 @@ replace_all_map () {
             *) failed=1 ;;
         esac
 
-        log
-        log "replace_all_map: total=${total} changed=${changed} missed=${missed} skipped=${skipped} failed=${failed}"
+        success "Ok: total=${total} changed=${changed} missed=${missed} skipped=${skipped} failed=${failed}"
 
         (( failed == 0 )) || return 2
         (( changed > 0 )) && return 0 || return 1
@@ -1046,8 +1044,7 @@ replace_all_map () {
 
     done < <( command "${find_cmd[@]}" 2>/dev/null || true )
 
-    log
-    log "replace_all_map: total=${total} changed=${changed} missed=${missed} skipped=${skipped} failed=${failed}"
+    success "Ok: total=${total} changed=${changed} missed=${missed} skipped=${skipped} failed=${failed}"
 
     (( failed == 0 )) || return 2
     (( changed > 0 )) && return 0 || return 1
