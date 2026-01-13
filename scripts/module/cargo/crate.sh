@@ -1,0 +1,353 @@
+#!/usr/bin/env bash
+
+cmd_crate_help () {
+
+    info_ln "Crate :\n"
+
+    printf '    %s\n' \
+        "active              Show current active version" \
+        "stable              Show stable version" \
+        "nightly             Show nightly version" \
+        "msrv                Show msrv version" \
+        "" \
+        "list                List of installed cargo tools/crates" \
+        "install             Install crate/s" \
+        "uninstall           Uninstall crate/s" \
+        "install-update      Install/Update cargo tool/s into latest version" \
+        "installed-tools     Installed List of cargo tools" \
+        "show                Show <package/tool/crate> info, version if installed" \
+        "" \
+        "add                 Add new crate/s into <--package *>" \
+        "remove              remove crate/s from <--package *>" \
+        "update              Update crate/s" \
+        "upgrade             Upgrade crate/s into latest version" \
+        "info                Information about <*crate-name*>" \
+        "search              Search in crates store <*crate-name*>" \
+        "" \
+        "new                 Create a new crate and (optionally) add it to the workspace, for not publish add (--no-publish)" \
+        "build               Build the whole workspace, or a single crate if specified" \
+        "run                 Run a binary (use -p/--package to pick a crate, or pass a bin name)" \
+        "clean               Clean Cargo" \
+        "clean-cache         Clean cache ( cargo-ci-cache-clean )" \
+        "has-deps            Check if workspace/package has a spacific dependency" \
+        "expand              Expand crate code ( expand macros/derive )" \
+        "" \
+        "check               Run compile checks for all crates and targets (no binaries produced)" \
+        "test                Run the full test suite (workspace-wide or a single crate)" \
+        "bench               Run benchmarks (workspace-wide or a single crate)" \
+        "example             Run an example target by name, forwarding extra args after --" \
+        "check-doc           Check docs after build it strictly (workspace or single crate)" \
+        "test-doc            Test docs by Run documentation tests (doctests)" \
+        "open-doc            Open docs in your browser after build it" \
+        "clean-doc           Clean docs" \
+        ''
+
+}
+
+cmd_active () {
+
+    active_version
+
+}
+cmd_stable () {
+
+    stable_version
+
+}
+cmd_nightly () {
+
+    nightly_version
+
+}
+cmd_msrv () {
+
+    msrv_version
+
+}
+
+cmd_list () {
+
+    ensure cargo
+    run cargo --list "$@"
+
+}
+cmd_install () {
+
+    source <(parse "$@" -- :name:list)
+    run_cargo install "${name[@]}" "${kwargs[@]}"
+
+}
+cmd_uninstall () {
+
+    source <(parse "$@" -- :name:list)
+    run_cargo uninstall "${name[@]}" "${kwargs[@]}"
+
+}
+cmd_install_update () {
+
+    source <(parse "$@" -- :name:list="-a")
+    ensure cargo-update cargo-install-update
+    run_cargo install-update "${name[@]}" "${kwargs[@]}"
+
+}
+cmd_installed_tools () {
+
+    run_cargo install --list "$@"
+
+}
+cmd_show () {
+
+    source <(parse "$@" -- :name:str)
+
+    local resolved="$(resolve_cmd "${name}")" || true
+    [[ -n "${resolved}" ]] || { error "${name}: Not found."; return 1; }
+
+    local -a cmd=()
+    read -r -a cmd <<< "${resolved}"
+
+    "${cmd[@]}" --version >/dev/null 2>&1 && { "${cmd[@]}" --version; return 0; }
+    "${cmd[@]}" -V        >/dev/null 2>&1 && { "${cmd[@]}" -V;        return 0; }
+    "${cmd[@]}" version   >/dev/null 2>&1 && { "${cmd[@]}" version;   return 0; }
+
+    success "${resolved}: Installed."
+    warn "${resolved}: can not detect version."
+
+    return 0
+
+}
+
+cmd_add () {
+
+    source <(parse "$@" -- :crate_name:list :package:str)
+    run_cargo add "${crate_name[@]}" --package "${package}" "${kwargs[@]}"
+
+}
+cmd_remove () {
+
+    source <(parse "$@" -- :crate_name:list :package:str)
+    run_cargo rm "${crate_name[@]}" --package "${package}" "${kwargs[@]}"
+
+}
+cmd_update () {
+
+    source <(parse "$@" -- crate_name:list)
+    run_cargo update "${crate_name[@]}" "${kwargs[@]}"
+
+}
+cmd_upgrade () {
+
+    source <(parse "$@" -- crate_name:list)
+
+    local -a pkg_args=()
+    local p=""
+
+    for p in "${crate_name[@]}"; do
+        [[ -n "${p}" ]] || continue
+        pkg_args+=( "--package" "${p}" )
+    done
+
+    ensure cargo-edit
+    run_cargo upgrade "${pkg_args[@]}" "${kwargs[@]}"
+
+}
+cmd_info () {
+
+    source <(parse "$@" -- :crate_name:list)
+    run_cargo info "${crate_name[@]}" "${kwargs[@]}"
+
+}
+cmd_search () {
+
+    run_cargo search "$@"
+
+}
+
+cmd_new () {
+
+    ensure perl
+    source <(parse "$@" -- :name:str dir:str="crates" kind:str="--lib" publish:bool=true workspace:bool=true )
+
+    local path="${dir}/${name}"
+    [[ -e "${path}" ]] && die "Crate already exists: ${path}" 2
+    [[ "${name}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Invalid crate name: ${name}" 2
+
+    mkdir -p -- "${dir}" 2>/dev/null || true
+    run_cargo new --vcs none "${kind}" "${kwargs[@]}" "${path}"
+
+    if (( publish == 0 )); then
+
+        local crate_toml="${path}/Cargo.toml"
+        [[ -f "${crate_toml}" ]] || die "Cargo.toml not found: ${crate_toml}" 2
+
+        perl -i -ne '
+            our $nl;
+            $nl //= (/\r\n$/ ? "\r\n" : "\n");
+
+            our $in_pkg;
+            our $inserted;
+
+            if (/^\[package\]\s*\r?$/) {
+                $in_pkg = 1;
+                $inserted = 0;
+                print;
+                next;
+            }
+            if ($in_pkg) {
+
+                if (/^\[[^\]]+\]\s*\r?$/) {
+                    if (!$inserted) { print "publish = false$nl"; $inserted = 1; }
+                    $in_pkg = 0;
+                    print;
+                    next;
+                }
+                if (/^[ \t]*publish\s*=/) {
+                    next;
+                }
+                if (!$inserted && /^[ \t]*name\s*=/) {
+                    print;
+                    print "publish = false$nl";
+                    $inserted = 1;
+                    next;
+                }
+
+                print;
+                next;
+            }
+
+            print;
+
+            END {
+                if ($in_pkg && !$inserted) {
+                    print "publish = false$nl";
+                }
+            }
+        ' "${crate_toml}" || die "Failed to set publish=false in ${crate_toml}" 2
+
+    fi
+
+    [[ ${workspace} -eq 1 ]] || return 0
+    [[ -f Cargo.toml ]] || return 0
+
+    grep -qF "\"${dir}/${name}\"" Cargo.toml 2>/dev/null && return 0
+
+    MEMBER="${dir}/${name}" perl -0777 -i -pe '
+        my $m = $ENV{MEMBER};
+        my $ws = qr/\[workspace\]/s;
+
+        if ($_ !~ $ws) { next; }
+
+        if ($_ =~ /members\s*=\s*\[(.*?)\]/s) {
+            my $block = $1;
+            if ($block !~ /\Q$m\E/s) {
+                s/(members\s*=\s*\[)(.*?)(\])/$1.$2."\n    \"$m\",\n".$3/se;
+            }
+        }
+        else {
+            s/(\[workspace\]\s*)/$1."members = [\n    \"$m\",\n]\n"/se;
+        }
+    ' Cargo.toml
+
+}
+cmd_build () {
+
+    run_workspace build "$@"
+
+}
+cmd_run () {
+
+    run_cargo run "$@"
+
+}
+cmd_clean () {
+
+    run_cargo clean "$@"
+
+}
+cmd_clean_cache () {
+
+    run_cargo ci-cache-clean "$@"
+
+}
+cmd_has_deps () {
+
+    source <(parse "$@" -- :keyword package:list p:list)
+
+    local -a args=()
+    local pkg=""
+
+    for pkg in "${package[@]}"; do args+=( --package "${pkg}" ); done
+    for pkg in "${p[@]}"; do args+=( --package "${pkg}" ); done
+
+    run_cargo tree "${args[@]}" "${kwargs[@]}" | grep -nF -- "${keyword}"
+
+}
+cmd_expand () {
+
+    source <(parse "$@" -- :package:list)
+
+    local -a args=()
+    local pkg=""
+    for pkg in "${package[@]}"; do args+=( --package "${pkg}" ); done
+
+    run_cargo expand --nightly "${args[@]}" "${kwargs[@]}"
+
+}
+
+cmd_check () {
+
+    run_workspace check features-on targets-on "$@"
+
+}
+cmd_test () {
+
+    if has cargo-nextest; then
+
+        run_workspace nextest run "$@"
+        return 0
+
+    fi
+
+    run_workspace test "$@"
+
+}
+cmd_bench () {
+
+    run_workspace bench features-on "$@"
+
+}
+cmd_example () {
+
+    source <(parse "$@" -- :name package p)
+    run_cargo run -p "${package:-${p:-examples}}" --example "${name}" "${kwargs[@]}"
+
+}
+cmd_check_doc () {
+
+    run_workspace doc features-on deps-off "$@"
+
+}
+cmd_test_doc () {
+
+    run_workspace test features-on --doc "$@"
+
+}
+cmd_clean_doc () {
+
+    remove_dir "${ROOT_DIR}/target/doc"
+
+}
+cmd_open_doc () {
+
+    run_workspace doc features-on deps-off "$@"
+
+    local index=""
+
+    if [[ -f "${ROOT_DIR}/target/doc/index.html" ]]; then
+        index="${ROOT_DIR}/target/doc/index.html"
+    else
+        index="$(find "${ROOT_DIR}/target/doc" -maxdepth 2 -name index.html -print | head -n 1 || true)"
+    fi
+
+    open_path "${index}"
+
+}
