@@ -121,7 +121,7 @@ jobs:
     uses: ./.github/workflows/_base.yml
     with:
       profile: stable
-      command: ci-bloat --out bloat.info
+      command: ci-bloat
 
   coverage:
     secrets: inherit
