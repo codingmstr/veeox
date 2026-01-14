@@ -849,7 +849,6 @@ trap_on_err () {
     line="${BASH_LINENO[0]-}"
 
     trap - ERR
-
     "${handler}" "${code}" "${cmd}" "${file}" "${line}" || true
 
     if [[ "${-}" == *i* && "${BASH_SOURCE[0]-}" != "${0-}" ]]; then

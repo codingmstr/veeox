@@ -27,7 +27,6 @@ cmd_bloat () {
     if [[ -n "${out}" ]]; then
 
         [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
-        [[ -f "${out}" ]] || die "bloat: invalid file: ${out}" 2
 
         run_cargo bloat "${args[@]}" "${kwargs[@]}" > "${out}"
         success "Analysed: out file -> ${out}"
