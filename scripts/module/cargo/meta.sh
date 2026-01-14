@@ -30,17 +30,12 @@ cmd_version () {
         local ws_root="$(jq -r '.workspace_root' <<<"${meta}")"
         local root_manifest="${ws_root}/Cargo.toml"
 
-        local v="$(jq -r --arg m "${root_manifest}" '
-            .packages[] | select(.manifest_path == $m) | .version
-        ' <<<"${meta}" 2>/dev/null || true)"
+        local v="$(jq -r --arg m "${root_manifest}" '.packages[] | select(.manifest_path == $m) | .version' <<<"${meta}" 2>/dev/null || true)"
 
         if [[ -z "${v}" || "${v}" == "null" ]]; then
 
             local id="$(jq -r '.workspace_members[0]' <<<"${meta}")"
-
-            v="$(jq -r --arg id "${id}" '
-                .packages[] | select(.id == $id) | .version
-            ' <<<"${meta}")"
+            v="$(jq -r --arg id "${id}" '.packages[] | select(.id == $id) | .version' <<<"${meta}")"
 
         fi
 
@@ -51,9 +46,7 @@ cmd_version () {
 
     fi
 
-    local v="$(jq -r --arg n "${name}" '
-        .packages[] | select(.name == $n) | .version
-    ' <<<"${meta}" 2>/dev/null | head -n 1)"
+    local v="$(jq -r --arg n "${name}" '.packages[] | select(.name == $n) | .version' <<<"${meta}" 2>/dev/null | head -n 1)"
 
     [[ -n "${v}" && "${v}" != "null" ]] || die "Error: package ${name} not found." 2
     printf '%s\n' "${v}"
@@ -318,9 +311,12 @@ cmd_can_publish () {
     source <(parse "$@" -- name)
 
     if [[ -n "${name}" ]]; then
+
         [[ "$(cmd_is_published "${name}")" == "yes" ]] && { echo "no"; return 0; }
+
         echo "yes"
         return 0
+
     fi
 
     local p=""
@@ -374,8 +370,10 @@ cmd_publish () {
 
     fi
     if [[ -n "${CARGO_REGISTRY_TOKEN+x}" ]]; then
+
         old_token_set=1
         old_token="${CARGO_REGISTRY_TOKEN}"
+
     fi
     if [[ -n "${token}" ]]; then
 

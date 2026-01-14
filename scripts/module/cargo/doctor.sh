@@ -36,9 +36,7 @@ doctor_ver () {
 
     ensure head tr
 
-    local out=""
-
-    out="$( { "$@" --version 2>&1 || true; } | head -n 6 | tr -d '\r' )"
+    local out="$( { "$@" --version 2>&1 || true; } | head -n 6 | tr -d '\r' )"
     out="$(doctor_pick_ver_line "${out}")"
     [[ -n "${out}" ]] && { printf '%s' "${out}"; return 0; }
 
@@ -56,9 +54,7 @@ doctor_ver () {
 }
 doctor_status () {
 
-    local kind="${1:-ok}"
-    local name="${2:-}"
-    local msg="${3:-}"
+    local kind="${1:-ok}" name="${2:-}" msg="${3:-}"
 
     case "${kind}" in
         ok)
@@ -124,7 +120,6 @@ doctor_cargo_sub () {
     fi
 
     local v="$(doctor_ver cargo "${sub}")"
-
     [[ -n "${v}" ]] || { doctor_status warn "${label}" "unknown"; return 0; }
 
     if [[ "${v}" == *"error:"* || "${v}" == *"fatal error:"* ]]; then
@@ -400,8 +395,7 @@ doctor_cargo () {
         local tc="$(nightly_version 2>/dev/null || true)"
         [[ -n "${tc}" ]] || tc="${RUST_NIGHTLY:-nightly}"
 
-        local targets_cnt="0"
-        targets_cnt="$(cargo "+${tc}" fuzz list 2>/dev/null | wc -l | tr -d '[:space:]' || true)"
+        local targets_cnt="$(cargo "+${tc}" fuzz list 2>/dev/null | wc -l | tr -d '[:space:]' || true)"
         [[ "${targets_cnt}" =~ ^[0-9]+$ ]] || targets_cnt="0"
 
         (( targets_cnt > 0 )) && doctor_status ok "fuzz-targets" "${targets_cnt}" || doctor_status warn "fuzz-targets" "0"
@@ -420,26 +414,11 @@ doctor_summary () {
     local face="" msg="" idx=0
     local -a msgs=()
 
-    if (( fail > 0 )); then
-
-        msg="😡 This isn't a pipeline… it's a crime scene !"
-
-    elif (( warn == 0 )); then
-
-        msg="😎 All is awsome 💯👌"
-
-    elif (( warn == 1 )); then
-
-        msg="😉 One tiny crack ☕"
-
-    elif (( warn == 2 )); then
-
-        msg="⚠️ Two warnings. Still fine 😮‍💨"
-
-    else
-
-        msg="😨 Too many warnings !"
-
+    if (( fail > 0 )); then msg="😡 This isn't a pipeline… it's a crime scene !"
+    elif (( warn == 0 )); then msg="😎 All is awsome 💯👌"
+    elif (( warn == 1 )); then msg="😉 One tiny crack ☕"
+    elif (( warn == 2 )); then msg="⚠️ Two warnings. Still fine 😮‍💨"
+    else msg="😨 Too many warnings !"
     fi
 
     printf '  %s %-18s %s\n' "🤔" "Status" "( ${msg} )"

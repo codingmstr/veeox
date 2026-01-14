@@ -8,8 +8,10 @@ cmd_ci_help () {
         "ci-stable           CI stable pipeline (check + test)" \
         "ci-nightly          CI nightly pipeline (check + test)" \
         "ci-msrv             CI msrv pipeline (check + test)" \
+        "" \
         "ci-doc              CI docs pipeline (check-doc + test-doc)" \
-        "ci-lint             CI lint pipeline (fmt + audit + taplo + prettier + spellcheck)" \
+        "ci-fmt              CI format pipeline (fmt-check)" \
+        "ci-lint             CI lint pipeline (audit + taplo + prettier + spellcheck)" \
         "" \
         "ci-clippy           CI clippy pipeline (cargo-clippy)" \
         "ci-audit            CI audit pipeline (cargo-audit/deny)" \
@@ -73,6 +75,7 @@ cmd_ci_msrv () {
     success_ln "CI Msrv Succeeded.\n"
 
 }
+
 cmd_ci_doc () {
 
     cmd_ensure
@@ -87,12 +90,20 @@ cmd_ci_doc () {
     success_ln "CI Doc Succeeded.\n"
 
 }
-cmd_ci_lint () {
+cmd_ci_fmt () {
 
     cmd_ensure
 
     info_ln "Format ...\n"
     cmd_fmt_check "$@"
+
+    cmd_clean_cache
+    success_ln "CI Format Succeeded.\n"
+
+}
+cmd_ci_lint () {
+
+    cmd_ensure
 
     info_ln "Taplo ...\n"
     cmd_taplo_check "$@"
@@ -225,7 +236,7 @@ cmd_ci_coverage () {
     cmd_ensure
 
     info_ln "Coverage ...\n"
-    cmd_coverage "$@"
+    cmd_coverage --upload "$@"
 
     cmd_clean_cache
     success_ln "CI Coverage Succeeded.\n"

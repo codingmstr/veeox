@@ -41,12 +41,8 @@ ensure_path_once () {
     ensure_line_once "${rc}" "# ${alias_name}"
 
     case "${rc}" in
-        */.config/fish/config.fish)
-            ensure_line_once "${rc}" 'set -gx PATH $HOME/.local/bin $PATH'
-        ;;
-        *)
-            ensure_line_once "${rc}" 'export PATH="$HOME/.local/bin:$PATH"'
-        ;;
+        */.config/fish/config.fish) ensure_line_once "${rc}" 'set -gx PATH $HOME/.local/bin $PATH' ;;
+        *) ensure_line_once "${rc}" 'export PATH="$HOME/.local/bin:$PATH"' ;;
     esac
 
 }

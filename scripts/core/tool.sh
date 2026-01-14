@@ -383,37 +383,20 @@ ensure () {
         [[ -n "${want}" ]] || continue
         has "${want}" && continue
 
+        YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}"
+
         case "${want}" in
-            python|python3|python3.*|pip|pip3)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_python
-            ;;
-            node|nodejs)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_node
-            ;;
-            rust|rustc|rustup|cargo)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_rust
-            ;;
-            rustfmt|clippy|llvm-tools-preview)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_component "${want}"
-            ;;
-            miri)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_component "${want}" nightly
-            ;;
-            fmt)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_component "rustfmt"
-            ;;
-            taplo)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_crate taplo-cli taplo
-            ;;
-            cargo-audit)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_crate cargo-audit cargo-audit --features fix
-            ;;
-            cargo-*)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_crate "${want}" "${want}"
-            ;;
-            *)
-                YES_ENV="${eff_yes}" QUIET_ENV="${eff_quiet}" VERBOSE_ENV="${eff_verbose}" ensure_pkg "${want}"
-            ;;
+            python|python3|python3.*|pip|pip3) ensure_python ;;
+            node|nodejs) ensure_node ;;
+            rust|rustc|rustup|cargo) ensure_rust ;;
+            rustfmt|clippy|llvm-tools-preview) ensure_component "${want}" ;;
+            miri) ensure_component "${want}" nightly ;;
+            fmt) ensure_component "rustfmt" ;;
+            taplo) ensure_crate taplo-cli taplo ;;
+            cargo-audit) ensure_crate cargo-audit cargo-audit --features fix ;;
+            cargo-upgrade|cargo-edit) ensure_crate cargo-edit cargo-upgrade ;;
+            samply|flamegraph|cargo-*) ensure_crate "${want}" "${want}" ;;
+            *) ensure_pkg "${want}" ;;
         esac
 
     done

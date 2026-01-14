@@ -75,6 +75,12 @@ jobs:
       profile: stable
       command: ci-doc
 
+  fmt:
+    uses: ./.github/workflows/_base.yml
+    with:
+      profile: nightly
+      command: ci-fmt
+
   lint:
     uses: ./.github/workflows/_base.yml
     with:
@@ -147,7 +153,7 @@ jobs:
     uses: ./.github/workflows/_base.yml
     with:
       profile: stable
-      command: ci-coverage --upload
+      command: ci-coverage
 
   publish:
     secrets: inherit

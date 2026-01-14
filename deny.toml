@@ -45,8 +45,8 @@ required-git-spec = "rev"
 unused-allowed-source = "deny"
 
 [licenses]
-include-dev = true
-unused-allowed-license = "warn"
+include-dev = false
+unused-allowed-license = "allow"
 confidence-threshold = 0.95
 allow = [
     "Apache-2.0",
@@ -54,13 +54,13 @@ allow = [
     "BSD-2-Clause",
     "NCSA",
     "Unicode-3.0",
-    # "BSD-3-Clause",
-    # "ISC",
-    # "Zlib",
-    # "0BSD",
-    # "CC0-1.0",
-    # "Unicode-DFS-2016",
-    # "OpenSSL",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unicode-DFS-2016",
+    "OpenSSL",
 ]
 
 [licenses.private]

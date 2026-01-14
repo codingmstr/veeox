@@ -5,12 +5,6 @@ cmd_lint_help () {
     info_ln "Lint :\n"
 
     printf '    %s\n' \
-        "clippy              Run clippy on crates only publishable" \
-        "clippy-strict       Run clippy on full workspace with not publishable crates too" \
-        "" \
-        "audit-check         Security advisory checks (policy gate)" \
-        "audit-fix           Apply automatic dependency upgrades to address advisories" \
-        "" \
         "ws-fix              Remove trailing whitespace in git-tracked files" \
         "fmt-check           Verify formatting --nightly (no changes)" \
         "fmt-fix             Auto-format code --nightly" \
@@ -27,31 +21,6 @@ cmd_lint_help () {
         "spell-add           Add item into spellcheck dic file" \
         "spell-remove        Remove item from spellcheck dic file" \
         ''
-
-}
-
-cmd_clippy () {
-
-    run_workspace_publishable clippy features-on targets-on "$@"
-
-}
-cmd_clippy_strict () {
-
-    run_workspace clippy features-on targets-on "$@"
-
-}
-
-cmd_audit_check () {
-
-    run_cargo deny check advisories bans licenses sources "$@"
-
-}
-cmd_audit_fix () {
-
-    local adv="${HOME}/.cargo/advisory-db"
-    [[ -d "${adv}" ]] && [[ ! -d "${adv}/.git" ]] && mv "${adv}" "${adv}.broken.$(date +%s)" || true
-
-    run_cargo audit fix "$@"
 
 }
 

@@ -94,12 +94,13 @@ run_cargo () {
 
     local sub="${1:-}" tc="" mode="stable"
     [[ -n "${sub}" ]] || die "run_cargo requires a cargo subcommand." 2
+
     shift || true
 
     case "${sub}" in
         add|rm|bench|build|check|test|clean|doc|fetch|fix|generate-lockfile|help|init|install|locate-project|login|logout|metadata|new|info) : ;;
         owner|package|pkgid|publish|remove|report|run|rustc|rustdoc|search|tree|uninstall|update|upgrade|vendor|verify-project|version|yank) : ;;
-        clippy|fmt|miri) ensure "${sub}" ;;
+        clippy|fmt|miri|samply|flamegraph) ensure "${sub}" ;;
         *) ensure "cargo-${sub}" ;;
     esac
 
@@ -200,7 +201,6 @@ run_workspace () {
         [[ "${1}" == "all-on" ]] && all=1
         shift || true
     fi
-
     if [[ "${command}" == "nextest" || "${command}" == "hack" ]]; then
         if [[ "${1-}" != "" && "${1}" != "--" && "${1}" != -* ]]; then
             nested="${1}"
@@ -248,9 +248,11 @@ run_workspace () {
         return 0
     fi
 
-    [[ -n "${nested}" ]] &&
-        run_cargo "${command}" "${nested}" --workspace "${extra[@]}" "$@" ||
+    if [[ -n "${nested}" ]]; then
+        run_cargo "${command}" "${nested}" --workspace "${extra[@]}" "$@"
+    else
         run_cargo "${command}" --workspace "${extra[@]}" "$@"
+    fi
 
 }
 run_workspace_publishable () {

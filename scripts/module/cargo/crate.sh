@@ -14,7 +14,7 @@ cmd_crate_help () {
         "install             Install crate/s" \
         "uninstall           Uninstall crate/s" \
         "install-update      Install/Update cargo tool/s into latest version" \
-        "installed-tools     Installed List of cargo tools" \
+        "installed           Installed List of cargo tools" \
         "show                Show <package/tool/crate> info, version if installed" \
         "" \
         "add                 Add new crate/s into <--package *>" \
@@ -90,7 +90,7 @@ cmd_install_update () {
     run_cargo install-update "${name[@]}" "${kwargs[@]}"
 
 }
-cmd_installed_tools () {
+cmd_installed () {
 
     run_cargo install --list "$@"
 

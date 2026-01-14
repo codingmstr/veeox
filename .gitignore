@@ -34,11 +34,6 @@ Desktop.ini
 **/*.data
 **/*.data.old
 
-**/*.lcov
-lcov.*
-codecov.*
-**/tarpaulin-report.html
-
 **/.mdbook/
 **/.cache/
 **/node_modules/

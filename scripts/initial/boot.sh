@@ -7,9 +7,11 @@ BOOT_LOADED=1
 __dir="${BASH_SOURCE[0]%/*}"
 [[ "${__dir}" == "${BASH_SOURCE[0]}" ]] && __dir="."
 
-BASE_DIR="$(cd -- "${__dir}" && pwd -P)/.."
-CORE_DIR="${BASE_DIR}/core"
-MODULE_DIR="${BASE_DIR}/module"
+readonly BASE_DIR="$(cd -- "${__dir}" && pwd -P)/.."
+readonly CORE_DIR="${BASE_DIR}/core"
+readonly MODULE_DIR="${BASE_DIR}/module"
+
+unset __dir 2>/dev/null || true
 
 source "${CORE_DIR}/env.sh"
 source "${CORE_DIR}/parse.sh"

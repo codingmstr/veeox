@@ -372,6 +372,7 @@ cmd_changelog () {
     success "changelog: updated ${file}"
 
 }
+
 cmd_default_branch () {
 
     git_repo_guard
@@ -425,6 +426,7 @@ cmd_switch_branch () {
     git_switch -c "${branch}"
 
 }
+
 cmd_all_branches () {
 
     git_repo_guard
@@ -465,6 +467,7 @@ cmd_all_tags () {
     run_git "${kind}" "${ssh_cmd}" ls-remote --tags --refs "${target}" | awk '{ sub("^refs/tags/","",$2); print $2 }'
 
 }
+
 cmd_new_release () {
 
     git_repo_guard

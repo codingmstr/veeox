@@ -9,6 +9,8 @@ __dir="${BASH_SOURCE[0]%/*}"
 __dir="$(cd -- "${__dir}" && pwd -P)"
 source "${__dir}/boot.sh"
 
+SORTED_LIST=(github notify crate lint perf safety doctor meta ci)
+
 should_skip () {
 
     local name="${1-}" s=""
@@ -57,7 +59,6 @@ load_walk () {
 
         base="${file##*/}"
         [[ -n "${base}" ]] || continue
-
         name="${base%.sh}"
 
         case "${mode}" in
@@ -138,12 +139,49 @@ load_source () {
     load_walk source "${dir}" "" "" "${extra_skip[@]-}"
 
 }
+module_usage () {
+
+    local name="${1-}"
+    [[ -n "${name}" ]] || return 0
+
+    local mod="" chosen=""
+    mod="${name//-/_}"
+    mod="${mod//./_}"
+
+    local fn1="${mod}_usage"
+    local fn2="help_${mod}"
+    local fn3="${mod}_help"
+    local fn4="usage_${mod}"
+    local fn5="cmd_${mod}_usage"
+    local fn6="cmd_help_${mod}"
+    local fn7="cmd_${mod}_help"
+    local fn8="cmd_usage_${mod}"
+
+    declare -F "${fn1}" >/dev/null 2>&1 && chosen="${fn1}"
+    [[ -z "${chosen}" ]] && declare -F "${fn2}" >/dev/null 2>&1 && chosen="${fn2}"
+    [[ -z "${chosen}" ]] && declare -F "${fn3}" >/dev/null 2>&1 && chosen="${fn3}"
+    [[ -z "${chosen}" ]] && declare -F "${fn4}" >/dev/null 2>&1 && chosen="${fn4}"
+    [[ -z "${chosen}" ]] && declare -F "${fn5}" >/dev/null 2>&1 && chosen="${fn5}"
+    [[ -z "${chosen}" ]] && declare -F "${fn6}" >/dev/null 2>&1 && chosen="${fn6}"
+    [[ -z "${chosen}" ]] && declare -F "${fn7}" >/dev/null 2>&1 && chosen="${fn7}"
+    [[ -z "${chosen}" ]] && declare -F "${fn8}" >/dev/null 2>&1 && chosen="${fn8}"
+    [[ -n "${chosen}" ]] || return 0
+
+    "${chosen}" || true
+
+}
 render_doc () {
 
     local dir="${MODULE_DIR:-}"
     [[ -n "${dir}" ]] || { die "render_doc: MODULE_DIR not set" 2; return 2; }
 
+    local -a mods=()
+    local -A seen=()
+    local -A printed_mod=()
+    local name="" mod="" chosen="" want="" printed=0
+
     load_source "${dir}" || return $?
+    load_walk doc "${dir}" seen mods || return 2
 
     info_ln "Usage:\n"
     printf '%s\n' \
@@ -157,40 +195,32 @@ render_doc () {
         '    --verbose,-v     Print executed commands' \
         ''
 
-    local -A seen=()
-    local -a mods=()
-    local name="" mod="" chosen="" title="" printed=0
+    for want in "${SORTED_LIST[@]-}"; do
 
-    load_walk doc "${dir}" seen mods || return 2
+        [[ -n "${want}" ]] || continue
 
+        for name in "${mods[@]-}"; do
+
+            [[ "${name}" == "${want}" ]] || continue
+
+            module_usage "${name}"
+
+            printed=1
+            printed_mod["${name}"]=1
+            break
+
+        done
+
+    done
     for name in "${mods[@]-}"; do
 
-        mod="${name//-/_}"
-        mod="${mod//./_}"
+        [[ -n "${name}" ]] || continue
+        [[ -n "${printed_mod[${name}]-}" ]] && continue
 
-        local fn1="${mod}_usage"
-        local fn2="help_${mod}"
-        local fn3="${mod}_help"
-        local fn4="usage_${mod}"
-        local fn5="cmd_${mod}_usage"
-        local fn6="cmd_help_${mod}"
-        local fn7="cmd_${mod}_help"
-        local fn8="cmd_usage_${mod}"
-        chosen=""
-
-        declare -F "${fn1}" >/dev/null 2>&1 && chosen="${fn1}"
-        [[ -z "${chosen}" ]] && declare -F "${fn2}" >/dev/null 2>&1 && chosen="${fn2}"
-        [[ -z "${chosen}" ]] && declare -F "${fn3}" >/dev/null 2>&1 && chosen="${fn3}"
-        [[ -z "${chosen}" ]] && declare -F "${fn4}" >/dev/null 2>&1 && chosen="${fn4}"
-        [[ -z "${chosen}" ]] && declare -F "${fn5}" >/dev/null 2>&1 && chosen="${fn5}"
-        [[ -z "${chosen}" ]] && declare -F "${fn6}" >/dev/null 2>&1 && chosen="${fn6}"
-        [[ -z "${chosen}" ]] && declare -F "${fn7}" >/dev/null 2>&1 && chosen="${fn7}"
-        [[ -z "${chosen}" ]] && declare -F "${fn8}" >/dev/null 2>&1 && chosen="${fn8}"
-        [[ -n "${chosen}" ]] || continue
-
-        "${chosen}" || true
+        module_usage "${name}"
 
         printed=1
+        printed_mod["${name}"]=1
 
     done
 
@@ -234,14 +264,8 @@ dispatch () {
     shift || true
 
     case "${cmd}" in
-        h)
-            render_doc
-            return 0
-        ;;
-        v)
-            echo "1.0.0"
-            return 0
-        ;;
+        h) render_doc; return 0 ;;
+        v) echo "1.0.0"; return 0 ;;
     esac
 
     if ! [[ "${cmd}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
@@ -250,11 +274,10 @@ dispatch () {
         return 2
     fi
 
-    local mod="${cmd//-/_}"
-    mod="${mod//./_}"
+    local sub="${1-}" mod="" fn=""
 
-    local sub="${1-}"
-    local fn=""
+    mod="${cmd//-/_}"
+    mod="${mod//./_}"
 
     if [[ -n "${sub}" && "${sub}" != -* ]]; then
 
