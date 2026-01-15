@@ -17,117 +17,73 @@ concurrency:
 jobs:
   stable:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-stable
+    with: { profile: stable, command: ci-stable }
 
   nightly:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: nightly
-      command: ci-nightly
+    with: { profile: nightly, command: ci-nightly }
 
   msrv:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: msrv
-      command: ci-msrv
+    with: { profile: msrv, command: ci-msrv }
 
   cross_stable:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
+    strategy: { matrix: { os: [windows-latest, macos-latest] } }
 
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-stable
-      runner: ${{ matrix.os }}
+    with: { profile: stable, command: ci-stable, runner: ${{ matrix.os }} }
 
   cross_nightly:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
+    strategy: { matrix: { os: [windows-latest, macos-latest] } }
 
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: nightly
-      command: ci-nightly
-      runner: ${{ matrix.os }}
+    with: { profile: nightly, command: ci-nightly, runner: ${{ matrix.os }} }
 
   cross_msrv:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
+    strategy: { matrix: { os: [windows-latest, macos-latest] } }
 
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: msrv
-      command: ci-msrv
-      runner: ${{ matrix.os }}
+    with: { profile: msrv, command: ci-msrv, runner: ${{ matrix.os }} }
 
   doc:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-doc
+    with: { profile: stable, command: ci-doc }
 
   fmt:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: nightly
-      command: ci-fmt
+    with: { profile: nightly, command: ci-fmt }
 
   lint:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-lint
+    with: { profile: stable, command: ci-lint }
 
   semver:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-semver
+    with: { profile: stable, command: ci-semver }
 
   clippy:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-clippy
+    with: { profile: stable, command: ci-clippy }
 
   audit:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-audit
+    with: { profile: stable, command: ci-audit }
 
   vet:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-vet
+    with: { profile: stable, command: ci-vet }
 
   hack:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-hack
+    with: { profile: stable, command: ci-hack }
 
   udeps:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-udeps
+    with: { profile: stable, command: ci-udeps }
 
   bloat:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-bloat
+    with: { profile: stable, command: ci-bloat }
 
   coverage:
     secrets: inherit
@@ -151,15 +107,13 @@ jobs:
       ]
 
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-coverage
+    with: { profile: stable, command: ci-coverage }
 
   publish:
     secrets: inherit
     needs: [coverage]
 
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: stable
-      command: ci-publish
+    with: { profile: stable, command: ci-publish }

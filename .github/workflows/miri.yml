@@ -12,6 +12,4 @@ concurrency:
 jobs:
   miri:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: nightly
-      command: ci-miri
+    with: { profile: nightly, command: ci-miri }

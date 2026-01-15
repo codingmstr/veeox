@@ -12,6 +12,4 @@ concurrency:
 jobs:
   fuzz:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: nightly
-      command: ci-fuzz --timeout 3600 --len 10000
+    with: { profile: nightly, command: ci-fuzz --timeout 3600 --len 10000 }

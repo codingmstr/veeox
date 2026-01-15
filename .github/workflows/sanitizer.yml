@@ -12,6 +12,4 @@ concurrency:
 jobs:
   sanitizer:
     uses: ./.github/workflows/_base.yml
-    with:
-      profile: nightly
-      command: ci-sanitizer
+    with: { profile: nightly, command: ci-sanitizer }
