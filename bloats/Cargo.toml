@@ -1,5 +1,5 @@
 [package]
-name = "examples"
+name = "bloats"
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -12,9 +12,12 @@ homepage.workspace = true
 authors.workspace = true
 keywords.workspace = true
 
-[dependencies]
-demo.workspace = true
+[features]
+bloat-demo = ["dep:demo"]
 
-[[example]]
+[dependencies]
+demo = { workspace = true, optional = true }
+
+[[bin]]
 name = "demo"
 path = "demo.rs"

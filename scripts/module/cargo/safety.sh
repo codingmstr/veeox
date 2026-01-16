@@ -27,6 +27,7 @@ cmd_safety_help () {
         "vet-certify         Certify crate and record it in audits (cargo vet certify)" \
         "vet-trust           Trust crate (cargo vet trust)" \
         "vet-deny            Record violation (cargo vet record-violation)" \
+        "vet-prune           Prune crate (cargo vet prune)" \
         "vet-renew           Renew crate permission (cargo vet renew)" \
         "vet-import          Import <name> by vet (cargo vet import)" \
         "vet-import-best     Import best defaults, trusted by (mozilla, google, isrg, bytecode-alliance)" \
@@ -343,6 +344,12 @@ cmd_vet_deny () {
 
     cmd_vet_init
     run_cargo vet record-violation "$@"
+
+}
+cmd_vet_prune () {
+
+    cmd_vet_init
+    run_cargo vet prune "$@"
 
 }
 cmd_vet_renew () {

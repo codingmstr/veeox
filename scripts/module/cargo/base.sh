@@ -21,6 +21,44 @@ msrv_version () {
     tool_msrv_version
 
 }
+
+publishable_pkgs () {
+
+    ensure cargo jq
+
+    run cargo metadata --format-version=1 --no-deps | jq -r '
+        def publish_list:
+            if .publish == null then ["crates-io"]
+            elif .publish == false then []
+            elif (.publish | type) == "array" then .publish
+            else []
+            end;
+
+        . as $m
+        | ($m.workspace_members) as $ws
+        | $m.packages[]
+        | select(.id as $id | $ws | index($id) != null)
+        | select(.source == null)
+        | select((publish_list | length) > 0)
+        | select(publish_list | index("crates-io") != null)
+        | .name
+    ' | tool_sort_uniq
+
+}
+workspace_pkgs () {
+
+    ensure cargo jq
+
+    run cargo metadata --format-version=1 --no-deps | jq -r '
+        . as $m
+        | ($m.workspace_members) as $ws
+        | $m.packages[]
+        | select(.id as $id | $ws | index($id) != null)
+        | select(.source == null)
+        | .name
+    ' | tool_sort_uniq
+
+}
 resolve_cmd () {
 
     source <(parse "$@" -- :name:str)
@@ -59,35 +97,81 @@ resolve_cmd () {
     return 1
 
 }
-publishable_pkgs () {
+set_perf_paranoid () {
 
-    ensure cargo jq
+    [[ "$(os_name)" == "linux" ]] || return 0
 
-    run cargo metadata --format-version=1 --no-deps \
-        | jq -r '
-            def publish_list:
-                if .publish == null then
-                    ["crates-io"]
-                elif .publish == false then
-                    []
-                elif (.publish | type) == "array" then
-                    .publish
-                else
-                    []
-                end;
+    local paranoid_file="/proc/sys/kernel/perf_event_paranoid"
+    [[ -r "${paranoid_file}" ]] || return 0
 
-            . as $m
-            | ($m.workspace_members) as $ws
-            | $m.packages[]
-            | select(.id as $id | $ws | index($id) != null)
-            | select(.source == null)
-            | select((publish_list | length) > 0)
-            | select(publish_list | index("crates-io") != null)
-            | .name
-        ' \
-    | tool_sort_uniq
+    local current_val="$(tr -d ' \t\r\n' < "${paranoid_file}" 2>/dev/null || true)"
+    [[ -n "${current_val}" ]] || return 0
+    [[ "${current_val}" =~ ^-?[0-9]+$ ]] || { warn "perf_event_paranoid: unexpected value '${current_val}'"; return 0; }
+
+    (( current_val <= 1 )) && return 0
+
+    info "Kernel perf_event_paranoid=${current_val} (too restrictive for profiling; need <= 1)."
+
+    if run sudo sysctl -w kernel.perf_event_paranoid=1; then
+        success "perf_event_paranoid set to 1."
+        return 0
+    fi
+
+    die "Failed to change perf_event_paranoid. Try: echo 1 | sudo tee ${paranoid_file}" 2
 
 }
+check_max_size () {
+
+    local file="${1-}" max_size="${2-}" bytes="" limit_bytes="" s=""
+
+    [[ -n "${file}" && -n "${max_size}" && -f "${file}" ]] || return 0
+
+    s="${max_size}"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    s="${s//[[:space:]]/}"
+
+    case "${s}" in
+        *[!0-9A-Za-z.]*)
+            die "bloat: invalid max_size: ${max_size}" 2
+        ;;
+    esac
+
+    limit_bytes="$(
+        awk -v s="${s}" '
+            BEGIN {
+                if (!match(s, /^([0-9]+(\.[0-9]+)?)([A-Za-z]*)$/, a)) exit 2
+
+                val = a[1]
+                u = tolower(a[3])
+
+                mul = 1
+
+                if (u == "" || u == "b" || u == "bytes") mul = 1
+                else if (u == "k" || u == "kb") mul = 1024
+                else if (u == "m" || u == "mb") mul = 1024 * 1024
+                else if (u == "g" || u == "gb") mul = 1024 * 1024 * 1024
+                else exit 3
+
+                out = int((val + 0) * mul + 0.5)
+                if (out < 0) out = 0
+                printf "%.0f", out
+            }
+        ' 2>/dev/null
+    )" || die "bloat: invalid max_size: ${max_size}" 2
+
+    [[ -n "${limit_bytes}" && "${limit_bytes}" =~ ^[0-9]+$ ]] || die "bloat: invalid max_size: ${max_size}" 2
+
+    if bytes="$(stat -c%s -- "${file}" 2>/dev/null)"; then :
+    elif bytes="$(stat -f%z -- "${file}" 2>/dev/null)"; then :
+    else bytes="$(wc -c < "${file}" 2>/dev/null | tr -d ' ')" || true
+    fi
+
+    [[ -n "${bytes}" && "${bytes}" =~ ^[0-9]+$ ]] || die "bloat: failed to read file size: ${file}" 2
+    (( bytes > limit_bytes )) && die "bloat: max_size exceeded: ${file} (${bytes} bytes > ${max_size})" 2
+
+}
+
 run_cargo () {
 
     ensure cargo

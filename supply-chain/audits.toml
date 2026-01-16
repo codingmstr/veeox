@@ -1,12 +1,4 @@
 
 # cargo-vet audits file
 
-[[audits.clap_lex]]
-who = "Coding Master <codingmaster009@gmail.com>"
-criteria = "safe-to-run"
-version = "0.7.7"
-
-[[audits.zmij]]
-who = "Coding Master <codingmaster009@gmail.com>"
-criteria = "safe-to-run"
-version = "1.0.14"
+[audits]

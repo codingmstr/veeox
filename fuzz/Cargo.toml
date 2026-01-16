@@ -1,26 +1,21 @@
 [package]
 name = "fuzz"
-description = "workspace fuzz"
+edition = "2021"
 publish = false
-version.workspace = true
-rust-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-readme.workspace = true
+
+[workspace]
+members = ["."]
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
-demo = { workspace = true }
-libfuzzer-sys = "0.4"
+demo = { path = "../crates/demo" }
+libfuzzer-sys = "0.4.10"
 
 [[bin]]
 name = "demo"
 path = "fuzz_targets/demo.rs"
+bench = false
 test = false
 doc = false
-bench = false

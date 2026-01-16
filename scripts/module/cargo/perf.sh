@@ -19,23 +19,75 @@ cmd_perf_help () {
 
 cmd_bloat () {
 
-    source <(parse "$@" -- bin out="profiles/bloat.info")
+    source <(parse "$@" -- package:list out="profiles/bloat.info" max_size all:bool release:bool=true)
 
-    local -a args=()
-    [[ -n "${bin}" ]] && args+=( --bin "${bin}" )
+    local out="${out}"
+    local -a pkgs=()
 
-    if [[ -n "${out}" ]]; then
-
-        [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
-
-        run_cargo bloat "${args[@]}" "${kwargs[@]}" > "${out}"
-        success "Analysed: out file -> ${out}"
-
-        return 0
-
+    if [[ ${#package[@]} -gt 0 ]]; then pkgs=( "${package[@]}" )
+    elif (( all )); then mapfile -t pkgs < <(workspace_pkgs)
+    else mapfile -t pkgs < <(publishable_pkgs)
     fi
 
-    run_cargo bloat "${args[@]}" "${kwargs[@]}"
+    [[ ${#pkgs[@]} -gt 0 ]] || die "bloat: no packages selected" 2
+
+    [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
+    : > "${out}"
+
+    printf '\n%s\n' "---------------------------------------" >> "${out}"
+    printf '%s' "- Bloats Report: " >> "${out}"
+    [[ -n "${max_size}" ]] && printf '%s' " Max-Size ( ${max_size} )" >> "${out}"
+    printf '\n%s\n' "- Version: $(cmd_version)" >> "${out}"
+    printf '%s\n\n' "---------------------------------------" >> "${out}"
+
+    local meta="$(run_cargo metadata --no-deps --format-version 1 2>/dev/null)" || die "bloat: failed to get metadata" 2
+    local target_dir="$(jq -r '.target_directory' <<<"${meta}" 2>/dev/null || true)"
+    [[ -n "${target_dir}" ]] || die "bloat: failed to read target_directory" 2
+
+    local mod="debug" flag="--dev"
+    (( release )) && { mod="release"; flag="--release"; }
+
+    local exe="" pkg="" out_text="" i=1
+    [[ "$(os_name)" == "windows" ]] && exe=".exe"
+
+    for pkg in "${pkgs[@]}"; do
+
+        printf '%d) %s:\n\n' "${i}" "${pkg}" >> "${out}"
+        (( i++ ))
+
+        local -a bins=()
+        mapfile -t bins < <(jq -r --arg n "${pkg}" '.packages[] | select(.name == $n) | .targets[] | select(.kind | index("bin")) | .name' <<<"${meta}")
+
+        if (( ${#bins[@]} > 0 )); then
+
+            local x="" bin_name="${bins[0]}"
+            for x in "${bins[@]}"; do [[ "${x}" == "${pkg}" ]] && { bin_name="${x}"; break; }; done
+
+            local bin_path="${target_dir}/${mod}/${bin_name}${exe}"
+
+            if out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p "${pkg}" --bin "${bin_name}" "${flag}" "${kwargs[@]}" 2>&1)"; then
+                printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
+                [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
+            else
+                printf 'ERROR: %s\n\n' "can't resolve ${bin_path}" >> "${out}"
+            fi
+
+        else
+
+            local bin_path="${target_dir}/${mod}/${pkg}${exe}"
+
+            if out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p bloats --bin "${pkg}" --features "bloat-${pkg}" "${flag}" "${kwargs[@]}" 2>&1)"; then
+                printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
+                [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
+            else
+                printf 'ERROR: %s\n\n' "can't find file -> ${bin_path}" >> "${out}"
+            fi
+
+        fi
+
+    done
+
+    success "Analysed: out file -> ${out}"
 
 }
 cmd_coverage () {
@@ -99,7 +151,7 @@ cmd_coverage () {
         [[ -n "${version}" ]] || version="latest"
         [[ -n "${version}" && "${version}" != "latest" && "${version}" != v* ]] && version="v${version}"
 
-        [[ -n "${token}" ]] || token="${CODECOV_TOKEN}"
+        [[ -n "${token}" ]] || token="${CODECOV_TOKEN:-}"
         [[ -n "${token}" ]] || { error "Codecov: CODECOV_TOKEN is missing."; return 0; }
         [[ -f "${out}" ]] || { error "Codecov: file not found: ${out}"; return 0; }
 
@@ -207,6 +259,7 @@ cmd_coverage () {
 cmd_samply () {
 
     ensure samply
+    set_perf_paranoid
 
     source <(parse "$@" -- \
         bin test bench example toolchain out="profiles/samply.json" nightly:bool stable:bool msrv:bool save_only:bool \

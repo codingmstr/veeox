@@ -29,17 +29,19 @@ cmd_crate_help () {
         "run                 Run a binary (use -p/--package to pick a crate, or pass a bin name)" \
         "clean               Clean Cargo" \
         "clean-cache         Clean cache ( cargo-ci-cache-clean )" \
-        "has-deps            Check if workspace/package has a spacific dependency" \
+        "tree                Show list of cargo tree dependencies (cargo tree -e normal)" \
+        "has                 Check if workspace/package has a spacific dependency" \
         "expand              Expand crate code ( expand macros/derive )" \
         "" \
         "check               Run compile checks for all crates and targets (no binaries produced)" \
         "test                Run the full test suite (workspace-wide or a single crate)" \
         "bench               Run benchmarks (workspace-wide or a single crate)" \
         "example             Run an example target by name, forwarding extra args after --" \
-        "check-doc           Check docs after build it strictly (workspace or single crate)" \
-        "test-doc            Test docs by Run documentation tests (doctests)" \
-        "open-doc            Open docs in your browser after build it" \
-        "clean-doc           Clean docs" \
+        "" \
+        "doc-check           Check docs after build it strictly (workspace or single crate)" \
+        "doc-test            Test docs by Run documentation tests (doctests)" \
+        "doc-open            Open docs in your browser after build it" \
+        "doc-clean           Clean docs" \
         ''
 
 }
@@ -136,18 +138,14 @@ cmd_update () {
 }
 cmd_upgrade () {
 
-    source <(parse "$@" -- crate_name:list)
+    source <(parse "$@" -- package:list)
 
-    local -a pkg_args=()
+    local -a args=()
     local p=""
 
-    for p in "${crate_name[@]}"; do
-        [[ -n "${p}" ]] || continue
-        pkg_args+=( "--package" "${p}" )
-    done
+    for p in "${package[@]}"; do args+=( "--package" "${p}" ); done
 
-    ensure cargo-edit
-    run_cargo upgrade "${pkg_args[@]}" "${kwargs[@]}"
+    run_cargo upgrade "${args[@]}" "${kwargs[@]}"
 
 }
 cmd_info () {
@@ -250,17 +248,36 @@ cmd_new () {
 }
 cmd_build () {
 
-    run_workspace build "$@"
+    source <(parse "$@" -- package:list)
+
+    local -a args=()
+    local pkg=""
+    for pkg in "${package[@]}"; do [[ -n "${pkg}" ]] && args+=( --package "${pkg}" ); done
+
+    run_workspace build "${args[@]}" "${kwargs[@]}"
 
 }
 cmd_run () {
 
-    run_cargo run "$@"
+    source <(parse "$@" -- package bin)
+
+    local -a args=()
+
+    [[ -n "${package}" ]] && args+=( --package "${package}" )
+    [[ -n "${bin}" ]] && args+=( --bin "${bin}" )
+
+    run_cargo run "${args[@]}" "${kwargs[@]}"
 
 }
 cmd_clean () {
 
-    run_cargo clean "$@"
+    source <(parse "$@" -- package:list)
+
+    local -a args=()
+    local pkg=""
+    for pkg in "${package[@]}"; do [[ -n "${pkg}" ]] && args+=( --package "${pkg}" ); done
+
+    run_cargo clean "${args[@]}" "${kwargs[@]}"
 
 }
 cmd_clean_cache () {
@@ -268,7 +285,17 @@ cmd_clean_cache () {
     run_cargo ci-cache-clean "$@"
 
 }
-cmd_has_deps () {
+cmd_tree () {
+
+    source <(parse "$@" -- normal:bool=true)
+
+    local -a args
+    (( normal )) && args+=( -e normal )
+
+    run_cargo tree "${args[@]}" "${kwargs[@]}"
+
+}
+cmd_has () {
 
     source <(parse "$@" -- :keyword package:list p:list)
 
@@ -287,7 +314,10 @@ cmd_expand () {
 
     local -a args=()
     local pkg=""
-    for pkg in "${package[@]}"; do args+=( --package "${pkg}" ); done
+
+    for pkg in "${package[@]}"; do
+        args+=( --package "${pkg}" )
+    done
 
     run_cargo expand --nightly "${args[@]}" "${kwargs[@]}"
 
@@ -300,14 +330,9 @@ cmd_check () {
 }
 cmd_test () {
 
-    if has cargo-nextest; then
-
-        run_workspace nextest run "$@"
-        return 0
-
+    if has cargo-nextest; then run_workspace nextest run "$@"
+    else run_workspace test "$@"
     fi
-
-    run_workspace test "$@"
 
 }
 cmd_bench () {
@@ -318,36 +343,36 @@ cmd_bench () {
 cmd_example () {
 
     source <(parse "$@" -- :name package p)
-    run_cargo run -p "${package:-${p:-examples}}" --example "${name}" "${kwargs[@]}"
+
+    local -a args=()
+    package="${package:-${p:-}}"
+    [[ -n "${package}" ]] && args+=( -p "${package}" )
+
+    run_cargo run "${args[@]}" --example "${name}" "${kwargs[@]}"
 
 }
-cmd_check_doc () {
+
+cmd_doc_check () {
 
     run_workspace doc features-on deps-off "$@"
 
 }
-cmd_test_doc () {
+cmd_doc_test () {
 
     run_workspace test features-on --doc "$@"
 
 }
-cmd_clean_doc () {
+cmd_doc_clean () {
 
     remove_dir "${ROOT_DIR}/target/doc"
 
 }
-cmd_open_doc () {
+cmd_doc_open () {
 
     run_workspace doc features-on deps-off "$@"
 
-    local index=""
-
-    if [[ -f "${ROOT_DIR}/target/doc/index.html" ]]; then
-        index="${ROOT_DIR}/target/doc/index.html"
-    else
-        index="$(find "${ROOT_DIR}/target/doc" -maxdepth 2 -name index.html -print | head -n 1 || true)"
+    if [[ -f "${ROOT_DIR}/target/doc/index.html" ]]; then open_path "${ROOT_DIR}/target/doc/index.html"
+    else open_path "$(find "${ROOT_DIR}/target/doc" -maxdepth 2 -name index.html -print | head -n 1 || true)"
     fi
-
-    open_path "${index}"
 
 }

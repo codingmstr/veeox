@@ -1,18 +1,19 @@
 [package]
 name = "benches"
-description = "workspace benches"
 publish = false
 version.workspace = true
-rust-version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
 license.workspace = true
-authors.workspace = true
+description.workspace = true
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+authors.workspace = true
+keywords.workspace = true
 
 [dependencies]
-demo = { workspace = true }
+demo.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

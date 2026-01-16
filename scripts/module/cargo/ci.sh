@@ -9,7 +9,7 @@ cmd_ci_help () {
         "ci-nightly          CI nightly pipeline (check + test)" \
         "ci-msrv             CI msrv pipeline (check + test)" \
         "" \
-        "ci-doc              CI docs pipeline (check-doc + test-doc)" \
+        "ci-doc              CI docs pipeline (doc-check + doc-test)" \
         "ci-fmt              CI format pipeline (fmt-check)" \
         "ci-lint             CI lint pipeline (audit + taplo + prettier + spellcheck)" \
         "" \
@@ -81,10 +81,10 @@ cmd_ci_doc () {
     cmd_ensure
 
     info_ln "Check Doc ...\n"
-    cmd_check_doc "$@"
+    cmd_doc_check "$@"
 
     info_ln "Test Doc ...\n"
-    cmd_test_doc "$@"
+    cmd_doc_test "$@"
 
     cmd_clean_cache
     success_ln "CI Doc Succeeded.\n"
@@ -277,10 +277,10 @@ cmd_ci_local () {
     cmd_test --msrv
 
     info_ln "Check Doc ...\n"
-    cmd_check_doc
+    cmd_doc_check
 
     info_ln "Test Doc ...\n"
-    cmd_test_doc
+    cmd_doc_test
 
     info_ln "Format ...\n"
     cmd_fmt_check
