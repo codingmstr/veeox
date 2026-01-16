@@ -31,19 +31,19 @@ jobs:
     strategy: { matrix: { os: [windows-latest, macos-latest] } }
 
     uses: ./.github/workflows/_base.yml
-    with: { profile: stable, command: ci-stable, runner: ${{ matrix.os }} }
+    with: { profile: stable, command: ci-stable, runner: '${{ matrix.os }}' }
 
   cross_nightly:
     strategy: { matrix: { os: [windows-latest, macos-latest] } }
 
     uses: ./.github/workflows/_base.yml
-    with: { profile: nightly, command: ci-nightly, runner: ${{ matrix.os }} }
+    with: { profile: nightly, command: ci-nightly, runner: '${{ matrix.os }}' }
 
   cross_msrv:
     strategy: { matrix: { os: [windows-latest, macos-latest] } }
 
     uses: ./.github/workflows/_base.yml
-    with: { profile: msrv, command: ci-msrv, runner: ${{ matrix.os }} }
+    with: { profile: msrv, command: ci-msrv, runner: '${{ matrix.os }}' }
 
   doc:
     uses: ./.github/workflows/_base.yml

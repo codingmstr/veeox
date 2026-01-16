@@ -19,7 +19,7 @@ cmd_perf_help () {
 
 cmd_bloat () {
 
-    source <(parse "$@" -- package:list out="profiles/bloat.info" max_size all:bool release:bool=true)
+    source <(parse "$@" -- package:list out="profiles/bloat.info" max_size=10MB all:bool release:bool=true)
 
     local out="${out}"
     local -a pkgs=()
@@ -66,22 +66,41 @@ cmd_bloat () {
             local bin_path="${target_dir}/${mod}/${bin_name}${exe}"
 
             if out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p "${pkg}" --bin "${bin_name}" "${flag}" "${kwargs[@]}" 2>&1)"; then
+
                 printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
                 [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
+
             else
+
                 printf 'ERROR: %s\n\n' "can't resolve ${bin_path}" >> "${out}"
+
             fi
 
         else
 
-            local bin_path="${target_dir}/${mod}/${pkg}${exe}"
+            local bin_name="bloat-${pkg}"
 
-            if out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p bloats --bin "${pkg}" --features "bloat-${pkg}" "${flag}" "${kwargs[@]}" 2>&1)"; then
+            if out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p bloats --bin "${bin_name}" --features "bloat-${pkg}" "${flag}" "${kwargs[@]}" 2>&1)"; then
+
+                local bin_path="${target_dir}/${mod}/${bin_name}${exe}"
+
                 printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
                 [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
+
+            elif out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p bloats --bin "${pkg}" --features "bloat-${pkg}" "${flag}" "${kwargs[@]}" 2>&1)"; then
+
+                bin_name="${pkg}"
+                local bin_path="${target_dir}/${mod}/${bin_name}${exe}"
+
+                printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
+                [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
+
             else
-                printf 'ERROR: %s\n\n' "can't find file -> ${bin_path}" >> "${out}"
+
+                printf 'ERROR: cargo bloat failed for %s (via bloats)\n%s\n\n' "${pkg}" "${out_text}" >> "${out}"
+
             fi
+
 
         fi
 

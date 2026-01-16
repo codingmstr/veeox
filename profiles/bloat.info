@@ -1,6 +1,6 @@
 
 ---------------------------------------
-- Bloats Report: 
+- Bloats Report:  Max-Size ( 10MB )
 - Version: 0.1.0
 ---------------------------------------
 
@@ -27,6 +27,6 @@ File  .text     Size Crate Name
 0.1%   1.0%   2.5KiB   std core::slice::sort::stable::quicksort::quicksort
 0.1%   1.0%   2.5KiB   std core::slice::sort::stable::quicksort::quicksort
 0.1%   0.9%   2.2KiB   std gimli::read::index::UnitIndex<R>::parse
-3.9%  59.0% 149.0KiB       And 504 smaller methods. Use -n N to show more.
-6.7% 100.0% 252.3KiB       .text section size, the file size is 3.7MiB
+3.9%  59.0% 148.7KiB       And 498 smaller methods. Use -n N to show more.
+6.7% 100.0% 252.0KiB       .text section size, the file size is 3.7MiB
 

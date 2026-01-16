@@ -19,5 +19,5 @@ bloat-demo = ["dep:demo"]
 demo = { workspace = true, optional = true }
 
 [[bin]]
-name = "demo"
+name = "bloat-demo"
 path = "demo.rs"
