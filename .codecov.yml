@@ -15,10 +15,6 @@ ignore:
   - "**/.venv/**"
   - "**/.idea/**"
   - "**/.vscode/**"
-  - "**/tests/**"
-  - "**/benches/**"
-  - "**/examples/**"
-  - "**/fuzz/**"
 
 coverage:
   precision: 2

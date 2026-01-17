@@ -62,9 +62,8 @@ install_launcher () {
     chmod +x "${run_sh}" >/dev/null 2>&1 || true
 
     local bin_dir="$(home_path)/.local/bin"
-    ensure_dir "${bin_dir}"
-
     local bin="${bin_dir}/${alias_name}"
+    ensure_dir "${bin_dir}"
 
     if [[ -e "${bin}" && ! -f "${bin}" ]]; then
         die "Refusing: target exists but not a file: ${bin}" 2
@@ -314,6 +313,7 @@ usage () {
 }
 install () {
 
+    cd_root
     source <(parse "$@" -- alias=vx name user repo branch description discord docs site github_base=https://github.com )
 
     local root="${ROOT_DIR}"

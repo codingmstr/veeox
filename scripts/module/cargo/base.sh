@@ -45,6 +45,28 @@ publishable_pkgs () {
     ' | tool_sort_uniq
 
 }
+not_publishable_pkgs () {
+
+    ensure cargo jq
+
+    run cargo metadata --format-version=1 --no-deps | jq -r '
+        def publish_list:
+            if .publish == null then ["crates-io"]
+            elif .publish == false then []
+            elif (.publish | type) == "array" then .publish
+            else []
+            end;
+
+        . as $m
+        | ($m.workspace_members) as $ws
+        | $m.packages[]
+        | select(.id as $id | $ws | index($id) != null)
+        | select(.source == null)
+        | select((publish_list | length) == 0 or (publish_list | index("crates-io") == null))
+        | .name
+    ' | tool_sort_uniq
+
+}
 workspace_pkgs () {
 
     ensure cargo jq
@@ -59,6 +81,40 @@ workspace_pkgs () {
     ' | tool_sort_uniq
 
 }
+ensure_workspace_pkg () {
+
+    (( $# > 0 )) || die "ensure_workspace_pkg: missing package name(s)" 2
+
+    local -a ws_pkgs=()
+    mapfile -t ws_pkgs < <(workspace_pkgs)
+
+    (( ${#ws_pkgs[@]} > 0 )) || die "ensure_workspace_pkg: no workspace packages found" 2
+
+    local -A ws_set=()
+    local -A miss_set=()
+    local -a missing=()
+
+    local x="" p=""
+
+    for x in "${ws_pkgs[@]-}"; do
+        ws_set["${x}"]=1
+    done
+
+    for p in "$@"; do
+
+        [[ -n "${p}" ]] || continue
+        [[ -n "${ws_set[${p}]-}" ]] && continue
+        [[ -n "${miss_set[${p}]-}" ]] && continue
+
+        miss_set["${p}"]=1
+        missing+=( "${p}" )
+
+    done
+
+    (( ${#missing[@]} == 0 )) || die "Unknown workspace package(s): ${missing[*]}" 2
+
+}
+
 resolve_cmd () {
 
     source <(parse "$@" -- :name:str)

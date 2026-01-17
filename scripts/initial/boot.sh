@@ -13,6 +13,7 @@ readonly MODULE_DIR="${BASE_DIR}/module"
 
 unset __dir 2>/dev/null || true
 
+source "${CORE_DIR}/bash.sh"
 source "${CORE_DIR}/env.sh"
 source "${CORE_DIR}/parse.sh"
 source "${CORE_DIR}/pkg.sh"

@@ -21,10 +21,9 @@ cmd_bloat () {
 
     source <(parse "$@" -- package:list out="profiles/bloat.info" max_size=10MB all:bool release:bool=true)
 
-    local out="${out}"
     local -a pkgs=()
 
-    if [[ ${#package[@]} -gt 0 ]]; then pkgs=( "${package[@]}" )
+    if [[ ${#package[@]} -gt 0 ]]; then pkgs=( "${package[@]}" ); ensure_workspace_pkg "${pkgs[@]}"
     elif (( all )); then mapfile -t pkgs < <(workspace_pkgs)
     else mapfile -t pkgs < <(publishable_pkgs)
     fi
@@ -52,6 +51,8 @@ cmd_bloat () {
 
     for pkg in "${pkgs[@]}"; do
 
+        printf '%s\n' "Analysing : ${pkg} ..."
+
         printf '%d) %s:\n\n' "${i}" "${pkg}" >> "${out}"
         (( i++ ))
 
@@ -67,7 +68,9 @@ cmd_bloat () {
 
             if out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p "${pkg}" --bin "${bin_name}" "${flag}" "${kwargs[@]}" 2>&1)"; then
 
-                printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
+                awk '{ sub(/\r$/, "") } !on && /^[[:space:]]*File[[:space:]]/ { on=1 } on { print }' <<<"${out_text}" >> "${out}"
+                printf '\n' >> "${out}"
+
                 [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
 
             else
@@ -84,7 +87,9 @@ cmd_bloat () {
 
                 local bin_path="${target_dir}/${mod}/${bin_name}${exe}"
 
-                printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
+                awk '{ sub(/\r$/, "") } !on && /^[[:space:]]*File[[:space:]]/ { on=1 } on { print }' <<<"${out_text}" >> "${out}"
+                printf '\n' >> "${out}"
+
                 [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
 
             elif out_text="$(NO_COLOR=1 CARGO_TERM_COLOR=never run_cargo bloat -p bloats --bin "${pkg}" --features "bloat-${pkg}" "${flag}" "${kwargs[@]}" 2>&1)"; then
@@ -92,7 +97,9 @@ cmd_bloat () {
                 bin_name="${pkg}"
                 local bin_path="${target_dir}/${mod}/${bin_name}${exe}"
 
-                printf '%s\n\n' "$(awk 'BEGIN{on=0} /^File[[:space:]]+\.text[[:space:]]+Size[[:space:]]+Crate[[:space:]]+Name$/{on=1} on{print}' <<<"${out_text}")" >> "${out}"
+                awk '{ sub(/\r$/, "") } !on && /^[[:space:]]*File[[:space:]]/ { on=1 } on { print }' <<<"${out_text}" >> "${out}"
+                printf '\n' >> "${out}"
+
                 [[ -n "${max_size}" ]] && check_max_size "${bin_path}" "${max_size}" || true
 
             else
@@ -114,51 +121,61 @@ cmd_coverage () {
     ensure llvm-tools-preview jq
     source <(parse "$@" -- mode=lcov name flags version token out upload:bool package:list)
 
-    local -a pkgs=()
+    local -a args=( --exclude bloats )
 
     if [[ ${#package[@]} -gt 0 ]]; then
 
-        local -a ws_pkgs=()
-        mapfile -t ws_pkgs < <(run_cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].name')
+        local -a all_pkgs=()
+        mapfile -t all_pkgs < <(publishable_pkgs)
 
         local -A ws_set=()
+        local -A pick_set=()
         local -A seen=()
         local x="" p=""
 
-        for x in "${ws_pkgs[@]-}"; do
-            ws_set["${x}"]=1;
+        for x in "${all_pkgs[@]}"; do
+            ws_set["${x}"]=1
         done
 
         for p in "${package[@]-}"; do
 
-            [[ -n "${ws_set[${p}]-}" ]] || die "Unknown workspace package: ${p}" 2
+            [[ -n "${ws_set[${p}]-}" ]] || die "Unknown package: ${p}" 2
             [[ -n "${seen[${p}]-}" ]] && continue
 
             seen["${p}"]=1
-            pkgs+=( -p "${p}" )
+            pick_set["${p}"]=1
 
         done
 
-        [[ ${#pkgs[@]} -gt 0 ]] || die "No packages selected" 2
+        [[ ${#pick_set[@]} -gt 0 ]] || die "No packages selected" 2
 
-    else
-
-        while IFS= read -r line; do pkgs+=( -p "${line}" ); done < <(publishable_pkgs)
-        [[ ${#pkgs[@]} -gt 0 ]] || die "No publishable workspace crates found" 2
+        for x in "${all_pkgs[@]}"; do
+            [[ -n "${pick_set[${x}]-}" ]] && continue
+            args+=( --exclude "${x}" )
+        done
 
     fi
 
     if [[ "${mode}" == "codecov" || "${mode}" == "json" ]]; then
 
+        args+=( --codecov )
+
         out="${out:-profiles/codecov.json}"
-        run_cargo llvm-cov "${pkgs[@]}" --all-targets --all-features --codecov --output-path "${out}" "${kwargs[@]}"
+        [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
+        : > "${out}"
 
     else
 
+        args+=( --lcov )
+
         out="${out:-profiles/lcov.info}"
-        run_cargo llvm-cov "${pkgs[@]}" --all-targets --all-features --lcov --output-path "${out}" "${kwargs[@]}"
+        [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
+        : > "${out}"
 
     fi
+
+    run_cargo llvm-cov clean --workspace
+    run_cargo llvm-cov --workspace --all-targets --all-features "${args[@]}" --output-path "${out}" --remap-path-prefix "${kwargs[@]}"
 
     if (( upload )); then
 
@@ -331,6 +348,7 @@ cmd_samply () {
 
     [[ -n "${out}"  ]] && args+=( -o "${out}" )
     [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
+    : > "${out}"
 
     RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes -g" run "${args[@]}" -- "${cargo[@]}" "${pkgs[@]}" "${kwargs[@]}"
 
@@ -390,6 +408,7 @@ cmd_flame () {
 
     [[ -n "${out}"  ]] && args+=( -o "${out}" )
     [[ "${out}" == */* ]] && run mkdir -p -- "${out%/*}"
+    : > "${out}"
 
     RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes -g" run "${cargo[@]}" "${args[@]}" "${pkgs[@]}" "${kwargs[@]}"
 
@@ -403,3 +422,8 @@ cmd_flame_open () {
     open_path "${file}"
 
 }
+
+# send_notify after finishing any workflows file ( failed/success message + link to workflow action ) on (slack, telegram)
+# to send_notify after github workflow file we must trigger on_end workflow from github actions of config files
+# push -> see all ci workflows logs -> publish --dry-run -> boooooooom
+# publish v0.1.0

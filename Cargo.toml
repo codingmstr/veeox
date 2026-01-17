@@ -56,3 +56,26 @@ unimplemented = "deny"
 indexing_slicing = "deny"
 undocumented_unsafe_blocks = "deny"
 multiple_crate_versions = "allow"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = "symbols"
+debug = 0
+debug-assertions = false
+overflow-checks = false
+incremental = false
+
+[profile.release-fat]
+inherits = "release"
+lto = "fat"
+
+[profile.release.build-override]
+opt-level = 0
+codegen-units = 256
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
